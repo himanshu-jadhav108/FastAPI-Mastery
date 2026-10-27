@@ -1,0 +1,66 @@
+# ==========================================
+# 1. Operating System Files
+# ==========================================
+# Keeps system-specific metadata out of the repository
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Log.txt
+*.db
+
+# ==========================================
+# 2. Environment Variables & Secrets
+# ==========================================
+# NEVER commit these. They contain API keys and passwords.
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+*.key
+*.cert
+
+# ==========================================
+# 3. Code Editors & IDEs
+# ==========================================
+# Excludes workspace settings specific to your local setup
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# ==========================================
+# 4. Package Managers & Dependencies
+# ==========================================
+# These should be installed fresh via lockfiles, not tracked in Git
+node_modules/
+jspm_packages/
+web_modules/
+.npm/
+.yarn/
+vendor/
+.pnpm-store/
+
+# ==========================================
+# 5. Build Outputs, Caches & Logs
+# ==========================================
+# Excludes compiled files and runtime generated data
+dist/
+build/
+out/
+.next/
+.nuxt/
+.cache/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.eslintcache
+__pycache__

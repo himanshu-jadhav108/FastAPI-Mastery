@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+fastapi[standard]
+sqlmodel
+pyjwt
+pwdlib[argon2]
+python-multipart
+sqlalchemy[asyncio]
+asyncpg
+aiosqlite
+alembic
+pydantic-settings
+pytest
+httpx
