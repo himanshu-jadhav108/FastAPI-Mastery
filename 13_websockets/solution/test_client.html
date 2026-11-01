@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Client</title>
+</head>
+<body>
+    <h2>Notifications</h2>
+    <ul id="messages"></ul>
+    <script>
+        const ws = new WebSocket("ws://127.0.0.1:8000/ws/notifications");
+        const messages = document.getElementById("messages");
+
+        ws.onmessage = (event) => {
+            const message = document.createElement("li");
+            message.textContent = event.data;
+            messages.appendChild(message);
+        };
+        ws.onopen = () => console.log("connected");
+        ws.onclose = () => console.log("disconnected");
+    </script>
+</body>
+</html>
