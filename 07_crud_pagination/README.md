@@ -1,70 +1,156 @@
-# 07 — Full CRUD + Pagination & Filtering
+<div align="center">
 
-## Theory
+# 📑 Module 07: Full CRUD, Pagination & SQL-Level Filtering
 
-CRUD = Create, Read, Update, Delete. You've built pieces of this already;
-this module assembles the complete, production-shaped set for one
-resource, plus real pagination/filtering against the database (not a
-Python list slice).
+[![Level](https://img.shields.io/badge/Level-Intermediate-blue?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Completed-success?style=for-the-badge)](#)
 
-**Separating schemas from the table model** (recap from module 03, now
-applied to SQLModel): even though `Task` the table model *could* be used
-directly as a request/response body, real projects split them:
+[⏮️ Previous: 06 Database SQLModel](../06_database_sqlmodel/README.md) • [📚 Course Overview](../README.md) • [Next: 08 Authentication OAuth2 JWT ⏭️](../08_auth_oauth2_jwt/README.md)
+
+---
+
+</div>
+
+## 📌 Architectural Overview
+
+In production backend engineering, pagination and filtering must execute directly on the database engine. Loading an entire database table into application RAM and slicing a Python list causes severe memory exhaustion and slow response times at scale.
+
+This module unifies clean **schema inheritance modeling** with high-performance **SQL-level filtering, pagination (`OFFSET` / `LIMIT`), and complete CRUD semantics**.
+
+```mermaid
+flowchart LR
+    Client[Client Request: /tasks?done=true&skip=20&limit=10] --> FastAPI[FastAPI Controller]
+    FastAPI --> SQL[SQL Query Generator]
+    SQL --> Engine[(SQLite / PostgreSQL)]
+    subgraph Database Query Execution
+        Engine --> Q["SELECT * FROM task WHERE done = true OFFSET 20 LIMIT 10"]
+    end
+    Q --> Out[Streamed Rows]
+    Out --> Serializer[TaskRead Serializer]
+    Serializer --> Response[Fast Paginated JSON Response]
+```
+
+---
+
+## 💡 Core Theoretical Concepts
+
+### 1. Hierarchical SQLModel Inheritance Pattern
+
+To keep code DRY while preventing security flaws, split your data structures into clear inheritance tiers:
 
 ```python
+from sqlmodel import SQLModel, Field
+
+# 1. Base schema (shared fields)
 class TaskBase(SQLModel):
     title: str
     priority: int = 3
     done: bool = False
 
+# 2. Database Table Model
 class Task(TaskBase, table=True):
-    id: int | None = SQLField(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
 
+# 3. Create Schema (input payload)
 class TaskCreate(TaskBase):
     pass
 
+# 4. Read Schema (output payload with guaranteed ID)
 class TaskRead(TaskBase):
     id: int
 
+# 5. Partial Update Schema (all fields optional)
 class TaskUpdate(SQLModel):
     title: str | None = None
     priority: int | None = None
     done: bool | None = None
 ```
 
-This means a client can never set `id` on create, and `TaskUpdate` fields
-are all optional for partial updates.
+### 2. SQL Filtering and Pagination
 
-**Filtering + pagination with SQL**, instead of slicing a Python list:
+Construct SQLAlchemy queries conditionally before dispatching:
 
 ```python
 statement = select(Task)
+
 if done is not None:
     statement = statement.where(Task.done == done)
+
 statement = statement.offset(skip).limit(limit)
 results = session.exec(statement).all()
 ```
 
-Building the `statement` up conditionally, then executing it once, is the
-standard pattern — it lets the database do the filtering (fast, scales)
-instead of Python (loads everything into memory first).
+### 3. Updating and Deleting Entities
 
-## Task
+```python
+# Partial Update
+db_task = session.get(Task, task_id)
+update_data = task_update.model_dump(exclude_unset=True)
+db_task.sqlmodel_update(update_data)
+session.add(db_task)
+session.commit()
+session.refresh(db_task)
 
-Open `starter.py` (this module switches to a fresh `tasks.db`).
+# Delete
+session.delete(db_task)
+session.commit()
+```
 
-1. Define `TaskBase`, `Task(TaskBase, table=True)`, `TaskCreate`,
-   `TaskRead`, `TaskUpdate` as shown above.
-2. `POST /tasks` → `response_model=TaskRead`, 201.
-3. `GET /tasks` → query params `done: bool | None`, `skip: int = 0`,
-   `limit: int = Query(default=10, ge=1, le=100)`. Build the `statement`
-   conditionally as shown. `response_model=list[TaskRead]`.
-4. `GET /tasks/{task_id}` → 404 if missing.
-5. `PATCH /tasks/{task_id}` → partial update using
-   `update.model_dump(exclude_unset=True)`, then
-   `session.add`/`commit`/`refresh`. 404 if missing.
-6. `DELETE /tasks/{task_id}` → `session.delete(task)`, `session.commit()`.
-   404 if missing. Return `{"deleted": task_id}`.
+---
 
-Test the full lifecycle in `/docs`: create 5 tasks, filter by `done`,
-paginate with `skip`/`limit`, patch one, delete one.
+## 🎯 Task Specifications
+
+Implement a complete, production-grade CRUD suite in `question/starter.py`.
+
+### Route Contract
+
+| Method | Path | Request Body | Response Model | Status Code | Description |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| `POST` | `/tasks` | `TaskCreate` | `TaskRead` | `201 Created` | Create new task row |
+| `GET` | `/tasks` | Query: `done`, `skip`, `limit` | `list[TaskRead]` | `200 OK` | Paginated and filtered task query |
+| `GET` | `/tasks/{task_id}` | None | `TaskRead` | `200 OK` | Fetch task by primary key (404 if missing) |
+| `PATCH` | `/tasks/{task_id}` | `TaskUpdate` | `TaskRead` | `200 OK` | Update only provided attributes |
+| `DELETE` | `/tasks/{task_id}` | None | `dict` / `None` | `204 No Content` | Delete record from database |
+
+---
+
+## 🛠️ Step-by-Step Implementation
+
+1. Open `question/starter.py`.
+2. Implement schema hierarchy (`TaskBase`, `Task`, `TaskCreate`, `TaskRead`, `TaskUpdate`).
+3. Complete `POST /tasks` with status code `201`.
+4. Complete `GET /tasks` with SQL-level `where`, `offset`, and `limit`.
+5. Implement `GET /tasks/{task_id}` with 404 validation.
+6. Implement `PATCH /tasks/{task_id}` using `.model_dump(exclude_unset=True)`.
+7. Implement `DELETE /tasks/{task_id}` using `session.delete()`.
+8. Verify all 5 endpoints via Swagger UI.
+
+---
+
+## 🧪 Verification Commands
+
+```bash
+# 1. Create Task
+curl -X POST http://127.0.0.1:8000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Complete full CRUD module", "priority": 5}'
+
+# 2. Paginated Query
+curl -X GET "http://127.0.0.1:8000/tasks?skip=0&limit=10"
+
+# 3. Partial Update (PATCH)
+curl -X PATCH http://127.0.0.1:8000/tasks/1 \
+  -H "Content-Type: application/json" \
+  -d '{"done": true}'
+
+# 4. Delete
+curl -X DELETE http://127.0.0.1:8000/tasks/1
+```
+
+---
+
+<div align="center">
+
+[⏮️ Previous: 06 Database SQLModel](../06_database_sqlmodel/README.md) • [📚 Course Overview](../README.md) • [Next: 08 Authentication OAuth2 JWT ⏭️](../08_auth_oauth2_jwt/README.md)
+
+</div>
