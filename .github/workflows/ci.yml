@@ -32,3 +32,4 @@ jobs:
       - name: Execute Pytest Suite
         run: |
           pytest 20_testing/solution/solution_test_app.py -v
+
