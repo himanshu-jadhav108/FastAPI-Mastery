@@ -1,64 +1,131 @@
-# 00 — Setup & Tooling
+<div align="center">
 
-No coding in this module — get your environment ready.
+# 🛠️ Module 00: Environment Setup & Tooling
 
-## Theory: what is FastAPI?
+[![Level](https://img.shields.io/badge/Level-Foundations-green?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Completed-success?style=for-the-badge)](#)
 
-FastAPI is a Python web framework for building APIs. Three things make it
-different from something like Flask:
+[📚 Course Overview](../README.md) • [Next: 01 Basics ⏭️](../01_basics/README.md)
 
-1. **Type hints ARE the validation layer.** You write `name: str`, FastAPI
-   validates it, converts it, and documents it — automatically.
-2. **Async-native.** Built on Starlette (ASGI), so it handles concurrent
-   I/O-bound requests efficiently.
-3. **Free interactive docs.** Every app gets `/docs` (Swagger UI) and
-   `/redoc` for free, generated from your code.
+---
 
-## Install
+</div>
+
+## 📌 Architectural Overview
+
+FastAPI is a modern, high-performance web framework for building APIs with Python 3.10+ based on standard Python type hints. Unlike legacy frameworks, FastAPI is built on two battle-tested pillars:
+
+1. **Starlette**: Powers the lightning-fast web routing, ASGI core engine, WebSockets, and background tasks.
+2. **Pydantic**: Powers data parsing, schema validation, serialization, and automated OpenAPI 3.1 generation.
+
+```
+                           +--------------------------------+
+                           |       Client HTTP Request      |
+                           +--------------------------------+
+                                           |
+                                           v
+                           +--------------------------------+
+                           |       Uvicorn (ASGI Server)    |
+                           +--------------------------------+
+                                           |
+                                           v
+       +------------------------------------------------------------------------+
+       |                           FastAPI Layer                                |
+       |                                                                        |
+       |  [Starlette Web Routing] <=====> [Pydantic Validation & Serialization] |
+       +------------------------------------------------------------------------+
+                                           |
+                                           v
+                           +--------------------------------+
+                           |      HTTP JSON / WS Response   |
+                           +--------------------------------+
+```
+
+---
+
+## 🎯 What Makes FastAPI Different?
+
+| Feature             | FastAPI                                                 | Traditional Frameworks (e.g. Flask)      |
+| :------------------ | :------------------------------------------------------ | :--------------------------------------- |
+| **Type Validation** | Native & automatic via Pydantic type annotations        | Manual payload checks / external plugins |
+| **Concurrency**     | Native `async` / `await` ASGI event loop                | WSGI blocking or complex threading       |
+| **Documentation**   | Auto-generated interactive Swagger UI (`/docs`) & ReDoc | Manual OpenAPI / Postman syncing         |
+| **Performance**     | On par with NodeJS and Go (via Starlette & Uvicorn)     | Higher overhead per request              |
+
+---
+
+## 🚀 Environment Setup
+
+### 1. Create and Activate Virtual Environment
 
 ```bash
+# Navigate to the project root
+cd d:/Learnings/fastapi-course
+
+# Create virtual environment
 python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
 
-pip install fastapi "uvicorn[standard]" sqlmodel pyjwt "pwdlib[argon2]" \
-    python-multipart sqlalchemy[asyncio] asyncpg aiosqlite alembic \
-    pydantic-settings pytest httpx
+# Windows (PowerShell):
+.\venv\Scripts\Activate.ps1
+
+# Linux / macOS:
+source venv/bin/activate
 ```
 
-- `fastapi` — the framework
-- `uvicorn[standard]` — the ASGI server that actually runs your app
-- `sqlmodel` — ORM used in modules 06-16 (simple, sync)
-- `sqlalchemy[asyncio]` + `asyncpg`/`aiosqlite` — async DB layer for module 17+
-- `pyjwt`, `pwdlib[argon2]` — auth (module 08)
-- `python-multipart` — required for file uploads and OAuth2 forms
-- `alembic` — migrations (module 18)
-- `pydantic-settings` — settings management (module 19)
-- `pytest`, `httpx` — testing (module 20)
-
-## Running any module
-
-Every module has a `starter.py`. From inside that module's folder:
+### 2. Install Project Dependencies
 
 ```bash
+pip install -r requirements.txt
+```
+
+#### What We Install & Why
+
+- `fastapi`: Core API framework.
+- `uvicorn[standard]`: Blazing-fast ASGI server with cythonized HTTP parsers and event loops.
+- `sqlmodel`: Ergonomic combination of SQLAlchemy ORM + Pydantic models.
+- `sqlalchemy[asyncio]`, `asyncpg`, `aiosqlite`: Modern async database drivers for high concurrency.
+- `pyjwt`, `pwdlib[argon2]`: Military-grade cryptographic password hashing and JWT token handling.
+- `python-multipart`: Required to parse form bodies, OAuth2 token requests, and file uploads.
+- `alembic`: Database migration tool for versioned schema evolutions.
+- `pydantic-settings`: 12-factor configuration management from `.env` files.
+- `pytest`, `httpx`: High-speed in-process testing harness.
+
+---
+
+## 💻 Running Any Module
+
+FastAPI provides the modern `fastapi dev` CLI tool for instant hot-reloading development:
+
+```bash
+# Using the FastAPI CLI (Recommended)
 fastapi dev starter.py
+
+# Or using Uvicorn directly
+uvicorn starter:app --reload --host 127.0.0.1 --port 8000
 ```
 
-or, older style:
+Once running, access:
+
+- 📖 **Interactive Swagger UI**: `http://127.0.0.1:8000/docs`
+- 📑 **ReDoc Documentation**: `http://127.0.0.1:8000/redoc`
+- 📜 **Raw OpenAPI Schema**: `http://127.0.0.1:8000/openapi.json`
+
+---
+
+## 🧪 Verification Check
+
+Verify that your Python environment has FastAPI properly installed and accessible:
 
 ```bash
-uvicorn starter:app --reload
+python -c "import fastapi; print(f'FastAPI version {fastapi.__version__} successfully initialized!')"
 ```
 
-Then open:
-- `http://127.0.0.1:8000/docs` — Swagger UI, click-to-test every endpoint
-- `http://127.0.0.1:8000/redoc` — read-only alternative docs
+If a valid version number prints without errors, you are ready to build!
 
-## Task
+---
 
-Nothing to build. Just confirm your environment works:
+<div align="center">
 
-```bash
-python -c "import fastapi; print(fastapi.__version__)"
-```
+[📚 Course Overview](../README.md) • [Next: 01 Basics ⏭️](../01_basics/README.md)
 
-If that prints a version number, you're ready for `01_basics`.
+</div>
