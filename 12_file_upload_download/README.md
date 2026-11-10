@@ -1,68 +1,143 @@
-# 12 — File Upload & Download
+<div align="center">
 
-## Theory
+# 📁 Module 12: File Uploads, Downloads & Path Sanitization
 
-**Uploading** uses `UploadFile`, not a raw `bytes` param — it streams the
-file instead of loading it all into memory at once, and gives you
-metadata (`filename`, `content_type`):
+[![Level](https://img.shields.io/badge/Level-Intermediate-blue?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Completed-success?style=for-the-badge)](#)
+
+[⏮️ Previous: 11 Background Tasks](../11_background_tasks/README.md) • [📚 Course Overview](../README.md) • [Next: 13 WebSockets ⏭️](../13_websockets/README.md)
+
+---
+
+</div>
+
+## 📌 Architectural Overview
+
+Handling file attachments requires specialized memory management and strict security controls. Reading files entirely into memory as raw `bytes` risks crashing server worker processes during concurrent large uploads.
+
+FastAPI provides `UploadFile`, a streaming abstraction backed by Spooled Temporary Files that buffers small files in memory and seamlessly rolls larger files onto disk.
+
+```
+                           +--------------------------------+
+                           |   Multipart Form HTTP Request  |
+                           +--------------------------------+
+                                           |
+                                           v
+                           +--------------------------------+
+                           |  UploadFile Streaming Buffer   |
+                           +--------------------------------+
+                                           |
+                                           v
+       +------------------------------------------------------------------------+
+       |                         Security Checks & Storage                      |
+       |                                                                        |
+       |  [Path Traversal Defense: Path.name]  --->  [File Size Guard (5MB MAX)]|
+       +------------------------------------------------------------------------+
+                                           |
+                                           v
+                           +--------------------------------+
+                           |   Persistent Storage (uploads/) |
+                           +--------------------------------+
+```
+
+---
+
+## 💡 Core Theoretical Concepts
+
+### 1. `UploadFile` vs Raw `bytes`
+
+| Feature | `UploadFile` | `bytes` |
+| :--- | :--- | :--- |
+| **Memory Strategy** | Spooled temporary file (streams to disk) | Loads entire payload directly into RAM |
+| **File Metadata** | Provides `filename`, `content_type`, headers | None |
+| **Methods** | Async `.read()`, `.write()`, `.seek()`, `.close()` | Synchronous in-memory byte slice |
 
 ```python
 from fastapi import File, UploadFile
 from typing import Annotated
 
 @app.post("/upload")
-async def upload_file(file: Annotated[UploadFile, File(...)]):
+async def handle_upload(file: Annotated[UploadFile, File(...)]):
     content = await file.read()
-    return {"filename": file.filename, "size": len(content)}
+    return {"filename": file.filename, "size_bytes": len(content)}
 ```
 
-Requires `python-multipart` installed (file uploads are sent as
-`multipart/form-data`, not JSON).
+### 2. Path Traversal Security Defense
 
-**Never trust the client's filename directly** — a malicious filename
-like `../../etc/passwd` could escape your intended directory (path
-traversal). Always take just the final path component:
+> [!CAUTION]
+> **Severe Vulnerability**: Never trust client-provided filenames! A malicious client could send `filename="../../etc/shadow"` or `../../app/main.py` to overwrite critical host files.
+> Always sanitize the filename by extracting solely the leaf component:
 
 ```python
 from pathlib import Path
 
-safe_name = Path(file.filename or "upload").name  # strips any directory parts
+# Strips any directory traversals (e.g. "../../virus.exe" becomes "virus.exe")
+safe_filename = Path(file.filename or "upload.bin").name
+destination_path = UPLOAD_DIR / f"{task_id}_{safe_filename}"
 ```
 
-**Downloading** uses `FileResponse`:
+### 3. High-Performance File Downloads with `FileResponse`
+
+FastAPI’s `FileResponse` streams files in chunks with proper HTTP headers (`Content-Disposition`, `Content-Length`, `Content-Type`):
 
 ```python
 from fastapi.responses import FileResponse
 
 @app.get("/files/{filename}")
-def download(filename: str):
-    safe_name = Path(filename).name  # sanitize here too — it's user input
-    path = UPLOAD_DIR / safe_name
-    if not path.exists():
-        raise HTTPException(404, "File not found.")
-    return FileResponse(path=path, filename=safe_name)
+def download_file(filename: str):
+    safe_name = Path(filename).name
+    file_path = UPLOAD_DIR / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path=file_path, filename=safe_name)
 ```
 
-`FileResponse` streams the file efficiently and sets the right headers
-(`Content-Disposition`, `Content-Type` guessed from the extension).
+---
 
-## Task
+## 🎯 Task Specifications
 
-Open `starter.py`.
+Enhance `question/starter.py` to allow users to attach documents and images to tasks.
 
-1. `POST /tasks/{task_id}/attachment` → protected (reuse `CurrentUserDep`
-   pattern conceptually, but for this module a simple `require: str`
-   query param check is fine — no need to redo full JWT auth here).
-   Accept an `UploadFile`. Sanitize the filename with `Path(...).name`.
-   Save it as `{task_id}_{filename}` under an `uploads/` directory
-   (create it if missing). Return `{"filename": saved_name, "size_bytes": ...}`.
-2. `GET /tasks/{task_id}/attachment/{filename}` → sanitize `filename`,
-   404 if the file doesn't exist under `uploads/`, else return it via
-   `FileResponse`.
-3. Add a max-size guard: if the uploaded file is over 5 MB
-   (`len(content) > 5 * 1024 * 1024`), raise `413` — there's no
-   `status.HTTP_413_...` constant needed, just use `413` directly, or
-   `status.HTTP_413_REQUEST_ENTITY_TOO_LARGE` if your FastAPI version has
-   it.
+### Route Contract
 
-Test by uploading a small text file via `/docs`, then downloading it back.
+| Method | Path | Request Format | Success Code | Description |
+| :--- | :--- | :--- | :---: | :--- |
+| `POST` | `/tasks/{task_id}/attachment` | `multipart/form-data` | `201 Created` | Validates file size (≤ 5MB), sanitizes filename, saves to `uploads/` directory |
+| `GET` | `/tasks/{task_id}/attachment/{filename}` | None | `200 OK` | Streams saved file back via `FileResponse` (404 if missing) |
+
+---
+
+## 🛠️ Step-by-Step Implementation
+
+1. Open `question/starter.py`.
+2. Define `UPLOAD_DIR = Path("uploads")` and ensure the folder is created automatically (`UPLOAD_DIR.mkdir(exist_ok=True)`).
+3. In `POST /tasks/{task_id}/attachment`:
+   - Sanitize `file.filename` using `Path(...).name`.
+   - Read content and enforce a 5 MB limit (`5 * 1024 * 1024` bytes). Raise `413 Request Entity Too Large` if violated.
+   - Write file content to disk as `{task_id}_{safe_filename}`.
+4. In `GET /tasks/{task_id}/attachment/{filename}`:
+   - Verify file existence under `uploads/` and return `FileResponse`.
+
+---
+
+## 🧪 Verification Commands
+
+```bash
+# 1. Create a dummy test file
+echo "Task documentation notes" > test_note.txt
+
+# 2. Upload file attachment
+curl -X POST http://127.0.0.1:8000/tasks/1/attachment \
+  -F "file=@test_note.txt"
+
+# 3. Download the attached file
+curl -O http://127.0.0.1:8000/tasks/1/attachment/1_test_note.txt
+```
+
+---
+
+<div align="center">
+
+[⏮️ Previous: 11 Background Tasks](../11_background_tasks/README.md) • [📚 Course Overview](../README.md) • [Next: 13 WebSockets ⏭️](../13_websockets/README.md)
+
+</div>
