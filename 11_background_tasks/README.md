@@ -1,50 +1,111 @@
-# 11 — Background Tasks
+<div align="center">
 
-## Theory
+# ⏱️ Module 11: Non-Blocking Background Tasks
 
-Sometimes an endpoint needs to do something *after* responding — send a
-confirmation email, write a log, notify a webhook — where the client
-shouldn't have to wait for that extra work to finish.
+[![Level](https://img.shields.io/badge/Level-Intermediate-blue?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Completed-success?style=for-the-badge)](#)
+
+[⏮️ Previous: 10 Middleware & CORS](../10_middleware_cors/README.md) • [📚 Course Overview](../README.md) • [Next: 12 File Upload & Download ⏭️](../12_file_upload_download/README.md)
+
+---
+
+</div>
+
+## 📌 Architectural Overview
+
+Often an API endpoint needs to perform actions *after* returning a response to the client — such as appending to an audit log file, dispatching email confirmations, or pinging external webhooks. Forcing the client to wait for these operations introduces unnecessary network latency.
+
+FastAPI’s `BackgroundTasks` executes operations **asynchronously after the HTTP response has been delivered**, keeping response times instant.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant FastAPI as Route Handler
+    participant ClientConn as Client Socket
+    participant Worker as Background Task Worker
+
+    Client->>FastAPI: POST /tasks {"title": "Send invoice"}
+    FastAPI->>FastAPI: Insert task to DB
+    FastAPI->>Worker: Schedule background task (audit logging)
+    FastAPI-->>ClientConn: 201 Created (Instant Delivery!)
+    Note over ClientConn,Worker: Client connection is now closed and free
+    Worker->>Worker: Write audit log to activity.log (Non-blocking)
+```
+
+---
+
+## 💡 Core Theoretical Concepts
+
+### 1. Declaring `BackgroundTasks`
+
+Inject `BackgroundTasks` directly into your endpoint handler parameter list and call `.add_task()`:
 
 ```python
 from fastapi import BackgroundTasks
 
-def write_log(message: str):
-    with open("log.txt", "a") as f:
-        f.write(message + "\n")
+def write_audit_log(username: str, action: str):
+    with open("activity.log", "a") as f:
+        f.write(f"{datetime.utcnow()} | {username} | {action}\n")
 
 @app.post("/tasks")
-def create_task(title: str, background_tasks: BackgroundTasks):
-    # ... create the task ...
-    background_tasks.add_task(write_log, f"Task created: {title}")
-    return {"message": "Task created"}
+def create_task(task: TaskCreate, bg: BackgroundTasks):
+    # Core DB logic
+    ...
+    # Schedule post-response execution
+    bg.add_task(write_audit_log, username="admin", action=f"Created task {task.title}")
+    return {"message": "Task queued"}
 ```
 
-The response is sent to the client immediately; `write_log` runs *after*
-that, in the same process. `add_task(fn, *args, **kwargs)` — args are
-passed straight through to the function.
+### 2. When to Use `BackgroundTasks` vs External Queues (Celery/ARQ)
 
-**Important limitation:** background tasks run in the same process as
-your app, using the same event loop/thread pool. They're fine for quick
-jobs (logging, a fast notification). For anything slow, heavy, or that
-must survive a server restart or crash — sending real emails at scale,
-image processing, anything that could take seconds+ — use a real task
-queue instead (Celery, ARQ, Dramatiq, RQ). `BackgroundTasks` is not a job
-queue; it has no retries, no persistence, no distribution across workers.
+> [!IMPORTANT]
+> `BackgroundTasks` runs inside the **same Python process** and shares the application's event loop and thread pool.
+> - **Ideal for**: Quick file logging, fire-and-forget notifications, in-process metrics tracking.
+> - **Not suited for**: Heavy CPU workloads, long-running batch jobs, operations requiring persistence across server restarts or automatic retry policies. For heavy jobs, use an external distributed task broker like **Celery**, **ARQ**, or **Dramatiq** backed by Redis or RabbitMQ.
 
-## Task
+---
 
-Open `starter.py`.
+## 🎯 Task Specifications
 
-1. Write `write_activity_log(username: str, message: str)` — appends a
-   line `"{timestamp} | {username} | {message}"` to `activity.log`.
-2. `POST /tasks` → after creating the task, schedule
-   `write_activity_log` to record `f"Created task: {title}"`.
-3. `DELETE /tasks/{task_id}` → schedule a log entry
-   `f"Deleted task: {task_id}"` after deleting.
-4. `POST /tasks/{task_id}/notify` → doesn't touch the task; just
-   schedules a background task that `time.sleep(2)`s (simulating slow
-   work like sending an email) then logs
-   `f"Notification sent for task {task_id}"`. Confirm the endpoint
-   returns **instantly** even though the background job takes 2 seconds
-   — check `activity.log` a moment later to see it landed.
+Update `question/starter.py` to schedule background audit logging for task lifecycle events.
+
+### Route Contract
+
+| Method | Path | Parameter | Behavior |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/tasks` | `bg: BackgroundTasks` | Creates task, schedules background call writing `"Created task: <title>"` to `activity.log` |
+| `DELETE` | `/tasks/{task_id}` | `bg: BackgroundTasks` | Deletes task, schedules background call writing `"Deleted task: <id>"` to `activity.log` |
+| `POST` | `/tasks/{task_id}/notify` | `bg: BackgroundTasks` | Simulates slow notification (`time.sleep(2)`), returns **immediately** to caller, logs after delay |
+
+---
+
+## 🛠️ Step-by-Step Implementation
+
+1. Open `question/starter.py`.
+2. Implement `write_activity_log(username: str, message: str)` writing timestamped strings to `activity.log`.
+3. Update `POST /tasks` to register `write_activity_log` via `background_tasks.add_task()`.
+4. Update `DELETE /tasks/{task_id}` to schedule deletion logging.
+5. Implement `POST /tasks/{task_id}/notify` simulating a 2-second delay. Notice that the HTTP response arrives in <10ms, while `activity.log` receives the record 2 seconds later.
+
+---
+
+## 🧪 Verification Commands
+
+```bash
+# 1. Trigger simulated slow notification
+time curl -X POST http://127.0.0.1:8000/tasks/1/notify
+
+# Verify command returns in milliseconds!
+
+# 2. Inspect generated activity.log entries
+cat activity.log
+```
+
+---
+
+<div align="center">
+
+[⏮️ Previous: 10 Middleware & CORS](../10_middleware_cors/README.md) • [📚 Course Overview](../README.md) • [Next: 12 File Upload & Download ⏭️](../12_file_upload_download/README.md)
+
+</div>
