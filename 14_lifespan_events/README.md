@@ -1,64 +1,123 @@
-# 14 — Lifespan Events
+<div align="center">
 
-## Theory
+# 🔄 Module 14: Modern Lifespan Event Management
 
-You've been calling `SQLModel.metadata.create_all(engine)` at import time
-in earlier modules — that "works" but it's the wrong place for startup
-logic. FastAPI has a proper mechanism: **lifespan**.
+[![Level](https://img.shields.io/badge/Level-Intermediate-blue?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Completed-success?style=for-the-badge)](#)
+
+[⏮️ Previous: 13 WebSockets](../13_websockets/README.md) • [📚 Course Overview](../README.md) • [Next: 15 Logging & Exception Handlers ⏭️](../15_logging_exception_handlers/README.md)
+
+---
+
+</div>
+
+## 📌 Architectural Overview
+
+Calling initialization logic (such as creating database schemas or instantiating connection pools) at module import time is an anti-pattern: it prevents test suites from overriding configurations, slows module imports, and cannot safely run async setup logic.
+
+FastAPI provides the standard ASGI **Lifespan** protocol via `contextlib.asynccontextmanager`. A single context manager encapsulates both application **Startup** (pre-request preparation) and **Shutdown** (graceful resource teardown).
+
+```mermaid
+stateDiagram-v2
+    [*] --> Startup: Application Launch
+    state Startup {
+        [*] --> InitDB: Initialize DB Tables
+        InitDB --> Prewarm: Pre-warm Connection Pool / ML Models
+        Prewarm --> [*]
+    }
+    Startup --> ServingRequests: yield (App accepts requests)
+    ServingRequests --> Shutdown: SIGTERM / Server Stop
+    state Shutdown {
+        [*] --> ClosePool: Close DB Sessions & HTTP Clients
+        ClosePool --> FlushLogs: Flush Buffered Logs
+        FlushLogs --> [*]
+    }
+    Shutdown --> [*]: Terminate Process
+```
+
+---
+
+## 💡 Core Theoretical Concepts
+
+### 1. The `@asynccontextmanager` Pattern
+
+FastAPI replaces legacy `@app.on_event("startup")` and `@app.on_event("shutdown")` decorators with an explicit async generator:
 
 ```python
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from sqlmodel import SQLModel
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ---- STARTUP: runs once, before the app accepts requests ----
-    print("Starting up...")
-    create_db_and_tables()
-
-    yield  # <-- the app runs here, handling requests
-
-    # ---- SHUTDOWN: runs once, after the app stops accepting requests ----
-    print("Shutting down...")
+    # ========================================================
+    # 1. STARTUP PHASE (Runs once before accepting requests)
+    # ========================================================
+    print("Initializing application resources...")
+    SQLModel.metadata.create_all(engine)
+    
+    yield  # Application is now live and serving traffic
+    
+    # ========================================================
+    # 2. SHUTDOWN PHASE (Runs on SIGTERM / application exit)
+    # ========================================================
+    print("Tearing down application resources...")
+    engine.dispose()
 
 app = FastAPI(lifespan=lifespan)
 ```
 
-Everything before `yield` runs once at startup. Everything after `yield`
-runs once at shutdown (e.g. closing a connection pool, flushing logs,
-releasing external resources). This replaces the older `@app.on_event
-("startup")` / `@app.on_event("shutdown")` decorators, which are
-deprecated.
+### 2. Benefits Over Legacy Event Decorators
 
-**Sharing startup-created resources with routes** — attach them to
-`app.state`:
+- **Unified Context Scope**: State initialized during startup remains in scope for shutdown teardown.
+- **Exception Safety**: The `try...finally` block guarantees cleanup occurs even if startup fails halfway through.
+- **ASGI Standard**: Fully conforms to Starlette and ASGI Lifespan specifications for seamless Docker and Kubernetes integration.
 
-```python
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    app.state.start_time = datetime.now(timezone.utc)
-    yield
+---
 
-@app.get("/uptime")
-def uptime(request: Request):
-    delta = datetime.now(timezone.utc) - request.app.state.start_time
-    return {"uptime_seconds": delta.total_seconds()}
+## 🎯 Task Specifications
+
+Update `question/starter.py` to migrate schema initialization and resource cleanup to an explicit `lifespan` handler.
+
+### Requirements
+
+1. Construct an `async def lifespan(app: FastAPI)` function using `@asynccontextmanager`.
+2. Move table creation (`SQLModel.metadata.create_all(engine)`) inside the startup phase.
+3. Add a log or print statement confirming startup completion.
+4. After `yield`, add a graceful cleanup log message confirming engine disposal (`engine.dispose()`).
+5. Attach the handler via `FastAPI(lifespan=lifespan)`.
+
+---
+
+## 🛠️ Step-by-Step Implementation
+
+1. Open `question/starter.py`.
+2. Import `from contextlib import asynccontextmanager`.
+3. Define the `lifespan` generator function.
+4. Pass `lifespan=lifespan` when instantiating `app = FastAPI(...)`.
+5. Start the application with `fastapi dev question/starter.py` and inspect terminal logs on boot and shutdown (`Ctrl+C`).
+
+---
+
+## 🧪 Verification Commands
+
+```bash
+# Start server in dev mode
+fastapi dev question/starter.py
+
+# Observe terminal output:
+# -> Initializing application resources...
+# -> Application startup complete! Serving requests.
+
+# Press Ctrl+C to trigger SIGINT:
+# -> Tearing down application resources...
+# -> Engine disposed cleanly. Goodbye!
 ```
 
-## Task
+---
 
-Open `starter.py`.
+<div align="center">
 
-1. Write a `lifespan` function that:
-   - on startup: calls `create_db_and_tables()`, logs
-     `"Starting Task Manager API..."`, and stores
-     `app.state.start_time = datetime.now(timezone.utc)`
-   - on shutdown: logs `"Shutting down Task Manager API..."`
-2. Pass `lifespan=lifespan` into `FastAPI(...)`.
-3. `GET /health` → return `{"status": "ok"}` — you'll expand this in
-   module 15/21.
-4. `GET /uptime` → use `request: Request` to reach `request.app.state
-   .start_time`, return `{"uptime_seconds": <float>}`.
+[⏮️ Previous: 13 WebSockets](../13_websockets/README.md) • [📚 Course Overview](../README.md) • [Next: 15 Logging & Exception Handlers ⏭️](../15_logging_exception_handlers/README.md)
 
-Restart the server and confirm the startup/shutdown log lines print at
-the right times (Ctrl+C to see the shutdown line).
+</div>
