@@ -1,69 +1,143 @@
-# 13 — WebSockets
+<div align="center">
 
-## Theory
+# ⚡ Module 13: Full-Duplex Real-Time WebSockets
 
-HTTP is request → response, then the connection is done. **WebSockets**
-keep a connection open so both sides can send messages at any time —
-useful for chat, live notifications, or real-time dashboards.
+[![Level](https://img.shields.io/badge/Level-Intermediate-blue?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Completed-success?style=for-the-badge)](#)
+
+[⏮️ Previous: 12 File Upload & Download](../12_file_upload_download/README.md) • [📚 Course Overview](../README.md) • [Next: 14 Lifespan Events ⏭️](../14_lifespan_events/README.md)
+
+---
+
+</div>
+
+## 📌 Architectural Overview
+
+Traditional HTTP is unidirectional: the client requests data, the server answers, and the TCP connection terminates. For live collaboration, real-time dashboards, or chat applications, polling HTTP introduces severe network overhead.
+
+**WebSockets (RFC 6455)** initiate as an HTTP handshake and upgrade into a persistent, bidirectional, full-duplex TCP channel allowing both client and server to push messages instantaneously with negligible packet overhead.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client A as Client A (Browser)
+    actor Client B as Client B (Mobile)
+    participant WS as WebSocket Endpoint (/ws/notifications)
+    participant CM as ConnectionManager
+    participant HTTP as POST /tasks Endpoint
+
+    Client A->>WS: Upgrade: WebSocket Handshake
+    WS->>CM: connect(websocket_A)
+    Client B->>WS: Upgrade: WebSocket Handshake
+    WS->>CM: connect(websocket_B)
+
+    Note over HTTP: Later: A new task is created
+    HTTP->>CM: broadcast("New task: Buy groceries")
+    par Broadcast to All
+        CM-->>Client A: Push message ("New task: Buy groceries")
+    and
+        CM-->>Client B: Push message ("New task: Buy groceries")
+    end
+```
+
+---
+
+## 💡 Core Theoretical Concepts
+
+### 1. WebSocket Endpoint Lifecycle
+
+Every WebSocket endpoint manages its connection through three discrete phases:
 
 ```python
 from fastapi import WebSocket, WebSocketDisconnect
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    # 1. Accept Handshake
     await websocket.accept()
     try:
         while True:
+            # 2. Receive Message (awaiting socket read)
             message = await websocket.receive_text()
+            # 3. Echo / Respond
             await websocket.send_text(f"Echo: {message}")
     except WebSocketDisconnect:
-        print("Client disconnected")
+        # Graceful disconnect handling
+        print("Client disconnected cleanly")
 ```
 
-- `await websocket.accept()` — must be called before send/receive
-- `await websocket.receive_text()` — blocks until the client sends
-  something (or disconnects, raising `WebSocketDisconnect`)
-- `await websocket.send_text(...)` — send a message back
+### 2. Multi-Client Broadcasting via `ConnectionManager`
 
-**Broadcasting to multiple clients** means tracking connections yourself:
+To broadcast real-time events to all active users, build a central `ConnectionManager`:
 
 ```python
-connected: list[WebSocket] = []
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
 
-@app.websocket("/ws/notifications")
-async def notifications(websocket: WebSocket):
-    await websocket.accept()
-    connected.append(websocket)
-    try:
-        while True:
-            await websocket.receive_text()  # keep the connection alive
-    except WebSocketDisconnect:
-        connected.remove(websocket)
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
 
-async def broadcast(message: str):
-    for ws in connected:
-        await ws.send_text(message)
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: str):
+        for connection in list(self.active_connections):
+            try:
+                await connection.send_text(message)
+            except Exception:
+                self.disconnect(connection)
+
+manager = ConnectionManager()
 ```
 
-`broadcast` can then be called from a regular HTTP endpoint (e.g. after
-creating a task) to push a live update to every connected client.
+---
 
-Note: this in-memory `connected` list only works with a single server
-process. Multiple workers/servers need a shared pub/sub layer (Redis,
-etc.) to broadcast across all of them — out of scope here, but good to
-know before you deploy this pattern.
+## 🎯 Task Specifications
 
-## Task
+Update `question/starter.py` to broadcast instant notifications to all active browser sessions whenever a new task is created.
 
-Open `starter.py`.
+### Route Contract
 
-1. Build `/ws/notifications` as shown — track connected clients, remove
-   them on disconnect.
-2. Write `async def broadcast(message: str)` that sends to all connected
-   clients.
-3. `POST /tasks` → create the task (in-memory list is fine), then
-   `await broadcast(f"New task created: {title}")`.
-4. Test it: open two browser tabs to a simple WebSocket test page (or use
-   `wscat`/Postman's WebSocket support) connected to `/ws/notifications`,
-   then `POST /tasks` from `/docs` in a third tab — confirm both
-   WebSocket clients receive the broadcast instantly.
+| Type | Path | Purpose | Behavior |
+| :--- | :--- | :--- | :--- |
+| **WS** | `/ws/notifications` | Real-time notification feed | Subscribes client socket to active broadcasts |
+| **HTTP** | `POST /tasks` | Create task | Inserts task and calls `await manager.broadcast(f"Task created: {task.title}")` |
+
+---
+
+## 🛠️ Step-by-Step Implementation
+
+1. Open `question/starter.py`.
+2. Construct the `ConnectionManager` class tracking active socket connections.
+3. Wire the `/ws/notifications` WebSocket endpoint.
+4. Modify `POST /tasks` to invoke `await manager.broadcast(...)`.
+5. Open `solution/test_client.html` in two separate browser tabs and watch messages appear instantly without refreshing!
+
+---
+
+## 🧪 Verification Commands
+
+You can connect and test using the included `test_client.html` or the command-line utility `websocat`:
+
+```bash
+# Connect to websocket stream
+websocat ws://127.0.0.1:8000/ws/notifications
+
+# In another terminal, create a task via HTTP
+curl -X POST http://127.0.0.1:8000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Real-time task alert"}'
+
+# -> Notice the broadcast message arrives instantly in your websocat terminal!
+```
+
+---
+
+<div align="center">
+
+[⏮️ Previous: 12 File Upload & Download](../12_file_upload_download/README.md) • [📚 Course Overview](../README.md) • [Next: 14 Lifespan Events ⏭️](../14_lifespan_events/README.md)
+
+</div>
