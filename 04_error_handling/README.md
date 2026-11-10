@@ -1,9 +1,37 @@
-# 04 — Error Handling with HTTPException
+<div align="center">
 
-## Theory
+# 🚨 Module 04: Error Handling & Semantic HTTP Statuses
 
-`HTTPException` is how you deliberately stop a request and return an
-error status + message:
+[![Level](https://img.shields.io/badge/Level-Foundations-green?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Completed-success?style=for-the-badge)](#)
+
+[⏮️ Previous: 03 Pydantic Validation](../03_pydantic_validation/README.md) • [📚 Course Overview](../README.md) • [Next: 05 Dependency Injection ⏭️](../05_dependency_injection/README.md)
+
+---
+
+</div>
+
+## 📌 Architectural Overview
+
+In a resilient RESTful service, errors must never result in silent failures or unhandled 500 crashes. FastAPI provides `HTTPException` as a first-class control-flow primitive that immediately short-circuits request execution and returns standard RFC 7807-compliant JSON error bodies.
+
+```
+Request ──> [Route Logic] ──> [Invalid State Detected]
+                                       │
+                                       ▼
+                       raise HTTPException(status, detail)
+                                       │
+                                       ▼ (Immediate Short-Circuit)
+Response <── [Status Code + {"detail": "Error description"}]
+```
+
+---
+
+## 💡 Core Theoretical Concepts
+
+### 1. The `HTTPException` Pattern
+
+Always use `fastapi.status` constants rather than raw integer codes for self-documenting code and IDE autocomplete:
 
 ```python
 from fastapi import HTTPException, status
@@ -11,46 +39,95 @@ from fastapi import HTTPException, status
 @app.get("/tasks/{task_id}")
 def get_task(task_id: int):
     task = find_task(task_id)
-    if task is None:
+    if not task:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Task not found.",
+            detail="Task not found."
         )
     return task
 ```
 
-Raising it immediately halts the function and sends:
-```json
-{"detail": "Task not found."}
+### 2. Industry Standard HTTP Status Reference
+
+| Status Code | Constant Name | Usage Scenario |
+| :---: | :--- | :--- |
+| `200` | `HTTP_200_OK` | Successful retrieval (`GET`) or mutation (`PUT`/`PATCH`) |
+| `201` | `HTTP_201_CREATED` | Successful entity creation (`POST`) |
+| `204` | `HTTP_204_NO_CONTENT` | Successful action with empty response (`DELETE`) |
+| `400` | `HTTP_400_BAD_REQUEST` | Client syntax or business logic error |
+| `401` | `HTTP_401_UNAUTHORIZED` | Missing or invalid authentication token |
+| `403` | `HTTP_403_FORBIDDEN` | Authenticated user lacks required permissions |
+| `404` | `HTTP_404_NOT_FOUND` | Target resource does not exist |
+| `409` | `HTTP_409_CONFLICT` | Duplicate unique constraint violation |
+| `422` | `HTTP_422_UNPROCESSABLE_ENTITY` | Pydantic schema validation failure |
+
+### 3. Partial Updates via `PATCH` & `exclude_unset=True`
+
+When updating a resource partially with `PATCH`, define all fields in `TaskUpdate` as optional (`None`). Then use `.model_dump(exclude_unset=True)` to extract **only** the fields explicitly provided by the caller:
+
+```python
+class TaskUpdate(BaseModel):
+    title: str | None = None
+    priority: int | None = None
+    done: bool | None = None
+
+update_data = payload.model_dump(exclude_unset=True)
+for key, value in update_data.items():
+    setattr(task, key, value)
 ```
-with the given status code. Use `status.HTTP_xxx` constants instead of raw
-numbers — they're more readable and you get autocomplete.
 
-**Status codes you'll use constantly:**
+---
 
-| Code | Meaning | When |
-|---|---|---|
-| 200 | OK | successful GET/PUT/PATCH |
-| 201 | Created | successful POST that creates something |
-| 400 | Bad Request | malformed input the client should fix |
-| 401 | Unauthorized | not authenticated (missing/invalid credentials) |
-| 403 | Forbidden | authenticated, but not allowed |
-| 404 | Not Found | resource doesn't exist |
-| 409 | Conflict | e.g. duplicate unique field |
-| 422 | Unprocessable Entity | Pydantic validation failure (automatic) |
-| 500 | Server Error | uncaught bug — you want to avoid these on purpose |
+## 🎯 Task Specifications
 
-## Task
+Update `question/starter.py` with rigorous validation and robust exception flows.
 
-Rewrite `starter.py` (carried over from module 03) so that:
+### Route Contract
 
-1. `GET /tasks/{task_id}` → raises `404` with detail `"Task not found."`
-   if no task has that id.
-2. `DELETE /tasks/{task_id}` → raises `404` the same way if nothing was
-   deleted.
-3. `POST /tasks` → raises `409 Conflict` with detail
-   `"A task with this title already exists."` if a task with the same
-   title (case-insensitive) already exists.
-4. `PATCH /tasks/{task_id}` → new endpoint. Accepts a `TaskUpdate` model
-   where every field is optional. Raises `404` if not found. Updates only
-   the fields the client actually sent (hint: `.model_dump(exclude_unset=True)`).
+| Method | Path | Request Body | Success Code | Error Handling Logic |
+| :--- | :--- | :--- | :---: | :--- |
+| `GET` | `/tasks/{task_id}` | None | `200 OK` | `404 Not Found` if `task_id` does not exist |
+| `DELETE` | `/tasks/{task_id}` | None | `200 OK` / `204` | `404 Not Found` if `task_id` does not exist |
+| `POST` | `/tasks` | `TaskCreate` | `201 Created` | `409 Conflict` if title already exists (case-insensitive) |
+| `PATCH` | `/tasks/{task_id}` | `TaskUpdate` | `200 OK` | `404 Not Found` if not found; updates only provided fields |
+
+---
+
+## 🛠️ Step-by-Step Implementation
+
+1. Open `question/starter.py`.
+2. Implement duplicate detection in `POST /tasks` and raise `HTTP_409_CONFLICT` with detail `"A task with this title already exists."`.
+3. Update `GET /tasks/{task_id}` and `DELETE /tasks/{task_id}` to raise `HTTP_404_NOT_FOUND` with detail `"Task not found."`.
+4. Implement `PATCH /tasks/{task_id}` accepting `TaskUpdate`. Use `.model_dump(exclude_unset=True)` to mutate existing record fields.
+5. Verify error behavior using `/docs`.
+
+---
+
+## 🧪 Verification Commands
+
+```bash
+# 1. Trigger 409 Conflict with Duplicate Task
+curl -X POST http://127.0.0.1:8000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Unique Task", "priority": 3}'
+
+curl -X POST http://127.0.0.1:8000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title": "unique task", "priority": 1}'
+
+# 2. Trigger 404 on Missing Resource
+curl -X GET http://127.0.0.1:8000/tasks/99999
+
+# 3. Successful Partial Update (PATCH)
+curl -X PATCH http://127.0.0.1:8000/tasks/1 \
+  -H "Content-Type: application/json" \
+  -d '{"done": true}'
+```
+
+---
+
+<div align="center">
+
+[⏮️ Previous: 03 Pydantic Validation](../03_pydantic_validation/README.md) • [📚 Course Overview](../README.md) • [Next: 05 Dependency Injection ⏭️](../05_dependency_injection/README.md)
+
+</div>
