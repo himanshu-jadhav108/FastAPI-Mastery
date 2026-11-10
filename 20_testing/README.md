@@ -1,14 +1,47 @@
-# 20 — Testing with pytest + TestClient
+<div align="center">
 
-## Theory
+# 🧪 Module 20: Comprehensive Testing with Pytest & TestClient
 
-`TestClient` (from `fastapi.testclient`) lets you call your API in-process
-— no running server needed, no real network calls, fast enough to run
-hundreds of times in CI.
+[![Level](https://img.shields.io/badge/Level-Advanced-red?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Completed-success?style=for-the-badge)](#)
+
+[⏮️ Previous: 19 Pydantic Settings](../19_pydantic_settings/README.md) • [📚 Course Overview](../README.md) • [Next: 21 Deployment & Production ⏭️](../21_deployment_production/README.md)
+
+---
+
+</div>
+
+## 📌 Architectural Overview
+
+Shipping software without automated tests is reckless. FastAPI includes first-class integration with **HTTPX** via `TestClient`.
+
+The `TestClient` mounts your ASGI application directly **in-process**. It does not spawn a network port or listen on a TCP socket; it feeds simulated HTTP request byte-streams straight into the ASGI application interface. Tests run in milliseconds and can execute thousands of assertions inside CI/CD pipelines in seconds.
+
+```
+       [Pytest Test Runner]
+                 │
+                 ▼ invokes
+       [FastAPI TestClient(app)]
+                 │
+                 ▼ (In-Process ASGI Invocation - No Network Lag)
+       [Dependency Overrides: In-Memory SQLite Test DB]
+                 │
+                 ▼
+       [FastAPI Route Handler & Logic]
+                 │
+                 ▼ returns
+       [HTTP Response Object for Assertions]
+```
+
+---
+
+## 💡 Core Theoretical Concepts
+
+### 1. `TestClient` Basics
 
 ```python
 from fastapi.testclient import TestClient
-from myapp.main import app
+from app.main import app
 
 client = TestClient(app)
 
@@ -18,25 +51,26 @@ def test_read_root():
     assert response.json() == {"message": "Task Manager API is running"}
 ```
 
-**The critical problem: tests must not touch your real database.** If
-`myapp.main` hardcodes a database file, your tests will pollute (or
-depend on) real data. The fix is **dependency overrides** — swap
-`get_session` for a test-only version, only during tests:
+### 2. Isolated Test Database with Dependency Overrides
+
+Never run integration tests against a live development or production database! Use FastAPI's `app.dependency_overrides` dictionary to swap out the real database session with an isolated SQLite in-memory database:
 
 ```python
 import pytest
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import SQLModel, Session, create_engine
 from sqlmodel.pool import StaticPool
+from app.main import app
+from app.database import get_session
 
-from myapp.main import app
-from myapp.database import get_session
+# In-memory single-thread SQLite database for testing
+TEST_DATABASE_URL = "sqlite:///:memory:"
 
 @pytest.fixture(name="session")
 def session_fixture():
     engine = create_engine(
-        "sqlite://",  # in-memory, no file at all
+        TEST_DATABASE_URL,
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,  # keeps the same in-memory DB across connections
+        poolclass=StaticPool,
     )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
@@ -53,56 +87,60 @@ def client_fixture(session: Session):
     app.dependency_overrides.clear()
 ```
 
-Every test that takes `client` as an argument now hits a fresh in-memory
-database instead of your real one. `app.dependency_overrides` is a dict
-FastAPI checks before resolving any `Depends(...)` — so overriding
-`get_session` there transparently swaps it out anywhere it's used.
-
-**Testing a protected (auth-required) route** — register + log in inside
-the test itself to get a real token, same as a real client would:
+### 3. Testing Authentication & Headers
 
 ```python
-def test_create_task_requires_auth(client: TestClient):
-    response = client.post("/tasks", json={"title": "Test"})
-    assert response.status_code == 401
-
-def test_create_task_with_auth(client: TestClient):
-    client.post("/auth/register", json={
-        "username": "alice", "email": "alice@example.com", "password": "secret123"
-    })
-    login = client.post("/auth/login", data={"username": "alice", "password": "secret123"})
-    token = login.json()["access_token"]
-
+def test_create_task_authenticated(client: TestClient):
+    token = get_auth_token(client, username="alice", password="password123")
     response = client.post(
         "/tasks",
-        json={"title": "Test task"},
+        json={"title": "Test task", "priority": 4},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 201
     assert response.json()["title"] == "Test task"
 ```
 
-**Running tests:**
+---
+
+## 🎯 Task Specifications
+
+Open `question/test_app.py` and implement a complete test suite for the Task Manager API in `solution/app_to_test.py`.
+
+### Test Scenarios to Cover
+
+1. `test_read_root`: Assert status `200` and greeting message.
+2. `test_create_task_valid`: Assert status `201`, verified ID, and returned title.
+3. `test_create_task_invalid_title`: Assert status `422` when sending an empty string title.
+4. `test_get_task_not_found`: Assert status `404` for non-existent ID `999`.
+5. `test_list_tasks_pagination`: Seed 5 tasks; assert `limit=2` returns exactly 2 tasks.
+6. `test_delete_task`: Create task, delete it, assert status `204`, then assert subsequent `GET` returns `404`.
+
+---
+
+## 🛠️ Step-by-Step Implementation
+
+1. Open `question/test_app.py`.
+2. Configure the `session` and `client` fixtures using `app.dependency_overrides`.
+3. Write test functions with descriptive names prefixed with `test_`.
+4. Run `pytest` and confirm all assertions pass.
+
+---
+
+## 🧪 Verification Commands
+
 ```bash
-pytest -v
+# Run the test suite with verbose output
+pytest question/test_app.py -v
+
+# Run with test coverage report
+pytest --cov=solution 20_testing/solution/solution_test_app.py -v
 ```
 
-## Task
+---
 
-Open `app_to_test.py` (a small, complete Task Manager app — CRUD +
-auth, reused from earlier modules) and `test_app.py` (has the TODOs).
+<div align="center">
 
-1. Write the `session` fixture as shown (in-memory SQLite +
-   `StaticPool`).
-2. Write the `client` fixture with the `get_session` override.
-3. `test_health_check` — `GET /health` returns 200.
-4. `test_register_and_login` — register a user, then log in, assert both
-   succeed and login returns an `access_token`.
-5. `test_create_task_requires_auth` — `POST /tasks` with no auth header
-   returns 401.
-6. `test_full_task_lifecycle` — register, log in, create a task, `GET`
-   it back, `PATCH` it, `DELETE` it, then `GET` it again and confirm 404.
-7. `test_cannot_delete_others_task` — register two users, user A creates
-   a task, user B tries to delete it, assert 403.
+[⏮️ Previous: 19 Pydantic Settings](../19_pydantic_settings/README.md) • [📚 Course Overview](../README.md) • [Next: 21 Deployment & Production ⏭️](../21_deployment_production/README.md)
 
-Run `pytest -v` and confirm all tests pass.
+</div>
