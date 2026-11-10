@@ -1,83 +1,131 @@
-# 19 — Settings Management with pydantic-settings
+<div align="center">
 
-## Theory
+# ⚙️ Module 19: 12-Factor Settings Management with Pydantic-Settings
 
-Every module so far hardcoded things like `SECRET_KEY =
-"dev-only-secret-change-this"` directly in the code. That's fine for
-exercises, dangerous in real life — secrets belong in environment
-variables, not source code (which ends up in git history).
+[![Level](https://img.shields.io/badge/Level-Advanced-red?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Completed-success?style=for-the-badge)](#)
 
-**`pydantic-settings`** reads environment variables (and `.env` files)
-into a typed, validated object:
+[⏮️ Previous: 18 Migrations with Alembic](../18_migrations_alembic/README.md) • [📚 Course Overview](../README.md) • [Next: 20 Testing with Pytest ⏭️](../20_testing/README.md)
+
+---
+
+</div>
+
+## 📌 Architectural Overview
+
+Hardcoding secrets, database URLs, and configuration flags into source code is one of the most critical security vulnerabilities in software engineering. When code is pushed to Git repositories, leaked credentials can compromise production databases and authentication tokens.
+
+The **12-Factor App methodology** dictates strict separation of config from code. **`pydantic-settings`** parses, validates, and type-checks environment variables and `.env` files into an immutable, strongly-typed configuration singleton.
+
+```mermaid
+flowchart LR
+    subgraph Sources
+        EnvVars[System Environment Variables]
+        DotEnv[.env File on Disk]
+    end
+    Sources --> PS[pydantic-settings BaseSettings]
+    PS --> Validate{Type Validation & Constraints}
+    Validate -->|Missing Required Secret| Error[Fail Fast on Startup: ValidationError]
+    Validate -->|Valid Config| SettingsObj[Typed Settings Singleton: settings]
+    SettingsObj --> App[FastAPI Application Lifespan & Routers]
+```
+
+---
+
+## 💡 Core Theoretical Concepts
+
+### 1. Declaring Configuration via `BaseSettings`
 
 ```python
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from functools import lru_cache
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-
-    database_url: str = "sqlite:///./tasks.db"
-    secret_key: str
-    algorithm: str = "HS256"
-    access_token_expire_minutes: int = 30
+    app_name: str = "Task Manager API"
     debug: bool = False
+    database_url: str = "sqlite:///./tasks.db"
+    secret_key: str  # Required! No default provided -> fails fast if not set
+    access_token_expire_minutes: int = 30
 
-settings = Settings()
-```
-
-- Fields with a default are optional; `secret_key: str` (no default) is
-  **required** — the app refuses to start without it, which is the
-  correct failure mode (fail loud at startup, not silently at runtime).
-- Values come from, in priority order: actual environment variables >
-  the `.env` file > the field default.
-- Types are validated exactly like request bodies — `debug: bool` reads
-  the string `"true"`/`"1"` from the environment and gives you a real
-  Python `bool`.
-
-**`.env` file** (never commit this — add it to `.gitignore`):
-```
-SECRET_KEY=a-real-random-secret-generate-this-properly
-DATABASE_URL=postgresql+asyncpg://user:pass@localhost/proddb
-DEBUG=false
-```
-
-pydantic-settings matches env var names to field names case-insensitively
-by default, so `SECRET_KEY` in `.env` maps to `secret_key` on the model.
-
-**Using settings via dependency injection**, so tests can override it:
-
-```python
-from functools import lru_cache
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+    )
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
 
-SettingsDep = Annotated[Settings, Depends(get_settings)]
-
-@app.get("/config-check")
-def config_check(settings: SettingsDep):
-    return {"debug": settings.debug, "algorithm": settings.algorithm}
+settings = get_settings()
 ```
 
-`@lru_cache` means `Settings()` (which reads env vars / parses `.env`)
-only runs once, not on every request.
+### 2. Key Architectural Advantages
 
-## Task
+- **Fail-Fast Bootstrapping**: If `SECRET_KEY` is missing from the environment, the application refuses to start up, preventing insecure execution.
+- **Type Casting**: Strings like `"false"`, `"0"`, or `"no"` are automatically parsed into boolean `False`.
+- **Cached Singleton via `@lru_cache`**: Prevents repeatedly reading `.env` files from disk on every incoming HTTP request.
+- **Dependency Injected Settings**: Settings can be injected into route handlers using `Depends(get_settings)`, enabling seamless mocking during unit and integration tests.
 
-Open `starter.py` and `.env.example` (copy it to `.env` before running).
+### 3. The `.env.example` Pattern
 
-1. Define `Settings(BaseSettings)`: `secret_key: str` (required),
-   `algorithm: str = "HS256"`, `access_token_expire_minutes: int = 30`,
-   `database_url: str = "sqlite:///./tasks_19.db"`, `debug: bool = False`.
-2. `get_settings()` with `@lru_cache`, and `SettingsDep`.
-3. `GET /config-check` → returns `{"debug": ..., "algorithm": ...,
-   "database_url": ...}` — **never return `secret_key` in a response.**
-4. Rewrite `create_access_token` to accept `settings: Settings` as a
-   parameter instead of reading a module-level constant, so it uses
-   `settings.secret_key`/`settings.algorithm`/
-   `settings.access_token_expire_minutes`.
-5. Test: run without a `.env` file / without `SECRET_KEY` set — confirm
-   the app **fails to start** with a clear Pydantic validation error.
-   Then create `.env` from `.env.example`, set a real value, and confirm
-   it starts.
+Never commit `.env` into git! Instead, commit a sanitized `.env.example` template with placeholder values:
+
+```bash
+# .env.example
+APP_NAME="Task Manager API"
+DEBUG=true
+DATABASE_URL="sqlite:///./tasks.db"
+SECRET_KEY="replace-with-a-real-cryptographic-secret-key-32-chars-minimum"
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+```
+
+---
+
+## 🎯 Task Specifications
+
+Update `question/starter.py` to refactor all hardcoded secrets and paths into a validated `Settings` model.
+
+### Requirements
+
+1. Define `Settings` inheriting from `BaseSettings`.
+2. Configure `model_config` pointing to `.env`.
+3. Declare fields:
+   - `app_name: str = "Task Manager API"`
+   - `secret_key: str` (mandatory)
+   - `database_url: str = "sqlite:///./tasks.db"`
+   - `access_token_expire_minutes: int = 30`
+   - `debug: bool = False`
+4. Implement cached getter `get_settings()` with `@lru_cache`.
+5. Wire `settings.database_url` into the database engine, and `settings.secret_key` into JWT token creation and verification functions.
+6. Verify behavior when `.env` is absent vs present.
+
+---
+
+## 🛠️ Step-by-Step Implementation
+
+1. Open `question/starter.py`.
+2. Create `.env` from the provided `.env.example`.
+3. Implement `Settings` class with `pydantic-settings`.
+4. Replace hardcoded `SECRET_KEY` and `DATABASE_URL` with attributes from `settings`.
+5. Launch app and verify `/docs` title reflects `settings.app_name`.
+
+---
+
+## 🧪 Verification Commands
+
+```bash
+# Test with custom environment variable overrides
+SECRET_KEY="my-production-secret-key" DEBUG=true fastapi dev question/starter.py
+
+# Verify settings in endpoint
+curl -X GET http://127.0.0.1:8000/info
+```
+
+---
+
+<div align="center">
+
+[⏮️ Previous: 18 Migrations with Alembic](../18_migrations_alembic/README.md) • [📚 Course Overview](../README.md) • [Next: 20 Testing with Pytest ⏭️](../20_testing/README.md)
+
+</div>
