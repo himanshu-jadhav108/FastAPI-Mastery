@@ -17,13 +17,18 @@ Pydantic v2 powers FastAPI's data validation, parsing, serialization, and OpenAP
 
 ```mermaid
 flowchart TD
-    A[Incoming HTTP Request Body] --> B[Raw JSON Parser]
-    B --> C{Pydantic Validation Engine}
-    C -->|Invalid Type / Constraint Failure| D[Automatic 422 Unprocessable Entity]
-    C -->|Valid Payload| E[Convert to Typed Python Instance]
-    E --> F[Execute Route Handler Logic]
-    F --> G[Pydantic Response Model Serialization]
-    G --> H[Outgoing Filtered JSON Response]
+    classDef reqStyle fill:#0284c7,stroke:#0369a1,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef engineStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef errStyle fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef passStyle fill:#059669,stroke:#047857,stroke-width:2px,color:#ffffff,font-weight:bold;
+
+    A["📥 Incoming HTTP Request Body"]:::reqStyle --> B["⚙️ Raw JSON Parser"]:::engineStyle
+    B --> C{"🔍 Pydantic Validation Engine"}:::engineStyle
+    C -->|Invalid Type / Constraint Failure| D["❌ 422 Unprocessable Entity"]:::errStyle
+    C -->|Valid Payload| E["✅ Typed Python Instance"]:::passStyle
+    E --> F["🚀 Route Handler Execution"]:::passStyle
+    F --> G["📦 Response Model Serialization"]:::passStyle
+    G --> H["📤 Clean JSON Response"]:::passStyle
 ```
 
 ---

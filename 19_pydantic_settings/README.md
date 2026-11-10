@@ -19,15 +19,20 @@ The **12-Factor App methodology** dictates strict separation of config from code
 
 ```mermaid
 flowchart LR
-    subgraph Sources
-        EnvVars[System Environment Variables]
-        DotEnv[.env File on Disk]
+    classDef srcStyle fill:#0284c7,stroke:#0369a1,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef parseStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef errStyle fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef passStyle fill:#059669,stroke:#047857,stroke-width:2px,color:#ffffff,font-weight:bold;
+
+    subgraph Config Sources
+        EnvVars["🖥️ System Environment"]:::srcStyle
+        DotEnv["📄 .env File on Disk"]:::srcStyle
     end
-    Sources --> PS[pydantic-settings BaseSettings]
-    PS --> Validate{Type Validation & Constraints}
-    Validate -->|Missing Required Secret| Error[Fail Fast on Startup: ValidationError]
-    Validate -->|Valid Config| SettingsObj[Typed Settings Singleton: settings]
-    SettingsObj --> App[FastAPI Application Lifespan & Routers]
+    Config Sources --> PS["⚙️ BaseSettings Parser"]:::parseStyle
+    PS --> Validate{"🔍 Strict Type Validation"}:::parseStyle
+    Validate -->|Missing Secret / Invalid Type| Error["❌ Fail Fast: ValidationError"]:::errStyle
+    Validate -->|Valid Config| SettingsObj["✅ Typed Settings Singleton"]:::passStyle
+    SettingsObj --> App["🚀 FastAPI Application"]:::passStyle
 ```
 
 ---
