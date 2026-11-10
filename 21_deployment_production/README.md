@@ -1,148 +1,197 @@
-# 21 — Deployment & Production Concerns
+<div align="center">
 
-## Theory
+# 🚀 Module 21: Production Deployment, Docker & Operational Concerns
 
-This module is mostly conceptual — deployment infrastructure varies by
-where you host, but the concepts transfer everywhere.
+[![Level](https://img.shields.io/badge/Level-Advanced-red?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Completed-success?style=for-the-badge)](#)
 
-### Uvicorn vs Gunicorn+Uvicorn workers
+[⏮️ Previous: 20 Testing with Pytest](../20_testing/README.md) • [📚 Course Overview](../README.md)
 
-`fastapi dev` / plain `uvicorn app:app --reload` is a **development**
-server — one process, auto-reload on file changes, not built for
-production load.
+---
 
-For production, run multiple worker processes so requests are handled in
-parallel across CPU cores:
+</div>
 
-```bash
-# Option A: Uvicorn's own multi-worker mode
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+## 📌 Architectural Overview
 
-# Option B: Gunicorn managing Uvicorn workers (more mature process management)
-gunicorn app.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+Developing an application on `localhost` is only the first step. Operating a production-grade FastAPI service requires handling concurrency across multi-core processors, packaging dependencies into isolated immutable containers, configuring automated container health checks, and locking down security attack vectors.
+
+This module unifies every architectural component built across the entire 21-module course into a deployable, containerized microservice.
+
+```mermaid
+graph TD
+    LB[Reverse Proxy / Cloud Load Balancer: Nginx / Traefik / AWS ALB] -->|TLS Termination :443 -> :8000| Gunicorn[Gunicorn Master Process]
+    
+    subgraph Containerized Application Pod
+        Gunicorn --> Worker1[Uvicorn Worker 1: Event Loop]
+        Gunicorn --> Worker2[Uvicorn Worker 2: Event Loop]
+        Gunicorn --> Worker3[Uvicorn Worker 3: Event Loop]
+        Gunicorn --> Worker4[Uvicorn Worker 4: Event Loop]
+    end
+
+    Worker1 <--> DB[(PostgreSQL Database Cluster)]
+    Worker2 <--> DB
+    Worker3 <--> DB
+    Worker4 <--> DB
 ```
 
-A common starting point for `--workers` is `(2 x CPU cores) + 1`, then
-tune based on actual load testing.
+---
 
-### Dockerizing a FastAPI app
+## 💡 Core Theoretical Concepts
+
+### 1. Concurrency: Uvicorn vs Gunicorn Multi-Worker Mode
+
+The single-process `fastapi dev` / `uvicorn --reload` server is meant strictly for local development. In production, utilize multiple worker processes to utilize all physical CPU cores:
+
+```bash
+# 1. Native Uvicorn Multi-Worker Mode
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+
+# 2. Gunicorn Managing Uvicorn Workers (Recommended for enterprise Linux)
+gunicorn app.main:app \
+  --workers 4 \
+  --worker-class uvicorn.workers.UvicornWorker \
+  --bind 0.0.0.0:8000 \
+  --access-logfile - \
+  --error-logfile -
+```
+
+> [!TIP]
+> A standard sizing formula for worker count is: `Workers = (2 x CPU Cores) + 1`. For an 8-core server, configure 17 workers.
+
+---
+
+### 2. High-Performance Multi-Stage Dockerfile
+
+A production Dockerfile must maximize caching, keep image sizes minimal, run as a non-privileged user, and bind to `0.0.0.0`:
 
 ```dockerfile
+# 1. Base Image
 FROM python:3.12-slim
+
+# Set environment optimizations
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8000
 
 WORKDIR /code
 
+# 2. Cache Layer: Install dependencies first
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
+# 3. Copy Application Source
 COPY ./app ./app
 
+# 4. Bind Host
+EXPOSE 8000
+
+# 5. Launch ASGI Server
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-Key points:
-- `--host 0.0.0.0` — required in Docker so the server accepts connections
-  from outside the container (`127.0.0.1` would only accept connections
-  from inside it)
-- Copy `requirements.txt` and install dependencies **before** copying the
-  rest of the app — Docker caches layers, so your dependency install only
-  reruns when `requirements.txt` actually changes, not on every code edit
-- Don't run `--reload` in production images — it adds file-watching
-  overhead you don't want
+> [!IMPORTANT]
+> - `--host 0.0.0.0` is required. Binding to `127.0.0.1` inside a container prevents traffic from reaching the container from outside!
+> - Copy `requirements.txt` and install dependencies **before** copying `./app`. Docker caches layers: dependency re-installation is skipped unless `requirements.txt` changes.
+> - Never include `--reload` in production images.
 
-### Environment-specific configuration
+---
 
-You already built this in module 19 — `Settings` reads from environment
-variables. In Docker/production, you set those via `docker run -e
-SECRET_KEY=... ` or your platform's environment/secrets manager, never
-baked into the image.
+### 3. Orchestration Health Probes (`/health`)
 
-### `/health` endpoints matter
-
-Load balancers and container orchestrators (Kubernetes, ECS, etc.) need
-a cheap endpoint to poll to know if your app is alive:
+Container orchestrators (Kubernetes, AWS ECS, Google Cloud Run) require cheap, automated liveness and readiness probes to monitor service health:
 
 ```python
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-```
+from fastapi import APIRouter, Depends, status, HTTPException
+from sqlmodel import select
 
-For a more thorough check, verify the database connection too:
-
-```python
-@app.get("/health")
-def health(session: SessionDep):
+@app.get("/health", tags=["Health"], status_code=status.HTTP_200_OK)
+def health_check(session: SessionDep):
     try:
+        # Ping the database
         session.exec(select(1))
-        return {"status": "ok", "database": "connected"}
-    except Exception:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Database unavailable")
+        return {"status": "healthy", "database": "connected"}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connectivity failed",
+        )
 ```
 
-### Don't leak internals
+---
 
-In production, disable `/docs` and `/redoc` (or protect them) if your
-API isn't meant to be publicly browsable — anyone can see your entire
-schema otherwise:
+### 4. Hardening Production Security
 
-```python
-import os
+1. **Disable Interactive Docs in Production**:
+   ```python
+   import os
+   
+   is_debug = os.getenv("DEBUG", "false").lower() == "true"
+   app = FastAPI(
+       docs_url="/docs" if is_debug else None,
+       redoc_url="/redoc" if is_debug else None,
+   )
+   ```
+2. **Never Expose Wildcard CORS**: Restrict `allow_origins` strictly to your official domain names.
+3. **Terminate TLS at Gateway**: Terminate SSL/TLS certificates at your reverse proxy (Nginx, Traefik, AWS ALB) rather than in Python.
 
-app = FastAPI(
-    docs_url="/docs" if os.getenv("DEBUG") == "true" else None,
-    redoc_url="/redoc" if os.getenv("DEBUG") == "true" else None,
-)
+---
+
+## 🎯 Task Specifications
+
+Inside `project/`, build and launch the containerized application.
+
+### Requirements
+
+1. Review `project/Dockerfile` and `project/.dockerignore`.
+2. Inspect `project/app/main.py` and confirm `/health` endpoint implementation.
+3. Build the container image:
+   ```bash
+   docker build -t task-manager-api:latest .
+   ```
+4. Run the container, injecting production environment variables:
+   ```bash
+   docker run -d -p 8000:8000 \
+     -e SECRET_KEY="super-secret-production-encryption-key" \
+     -e DEBUG=false \
+     --name task-api-instance \
+     task-manager-api:latest
+   ```
+5. Query `http://localhost:8000/health` and verify the container returns `200 OK`.
+
+---
+
+## 🧪 Verification Commands
+
+```bash
+cd project
+
+# 1. Build Docker image
+docker build -t task-manager-api .
+
+# 2. Run container instance
+docker run -p 8000:8000 task-manager-api
+
+# 3. Query health probe
+curl -i http://localhost:8000/health
+
+# Response:
+# HTTP/1.1 200 OK
+# Content-Type: application/json
+# {"status": "healthy", "database": "connected"}
 ```
 
-Also make sure your generic-exception handler (module 15) never returns
-a raw traceback to the client — that leaks file paths, library versions,
-and sometimes secrets.
+---
 
-### CORS in production
+## 🏆 Graduation & Mastery
 
-Revisit module 10 — `allow_origins` should list your actual frontend
-domain(s), never `"*"`, once you're live.
+Congratulations! You have progressed from a single-file route returning a static dictionary all the way to an enterprise-ready, role-authenticated, asynchronous, containerized microservice.
 
-### A production checklist
+**You are now in the top 1% of FastAPI backend engineers.** 🚀
 
-- [ ] `SECRET_KEY` and all secrets come from environment variables, not
-      code
-- [ ] Debug mode / `/docs` disabled or protected in production
-- [ ] CORS `allow_origins` is an explicit list, not `"*"`
-- [ ] Database uses connection pooling appropriate to your DB (async
-      engine + a real Postgres in production, not SQLite)
-- [ ] Migrations (Alembic) are run as a deploy step, not
-      `create_all()` in code
-- [ ] Logging goes somewhere durable (not just stdout lost on restart)
-- [ ] `/health` endpoint exists and is wired into your platform's health
-      checks
-- [ ] Rate limiting exists on public-facing write endpoints (a reverse
-      proxy or API gateway typically handles this)
-- [ ] Uvicorn/Gunicorn run with multiple workers, not the dev server
-- [ ] HTTPS is terminated somewhere (a load balancer, reverse proxy, or
-      platform-managed certificate) — Uvicorn itself is usually not
-      handling TLS directly in production
+---
 
-## Task
+<div align="center">
 
-No new code to write — this is a wiring/assembly exercise using
-everything from modules 16-20.
+[⏮️ Previous: 20 Testing with Pytest](../20_testing/README.md) • [📚 Course Overview](../README.md)
 
-1. Open `project/` — it's the module 16 router-based project, now with
-   a `Dockerfile` and `requirements.txt` already included.
-2. Read the `Dockerfile` line by line and match each line to the theory
-   above.
-3. Build the image: `docker build -t task-manager-api .` (from inside
-   `project/`).
-4. Run it: `docker run -p 8000:8000 -e SECRET_KEY=some-real-secret
-   task-manager-api`
-5. Confirm `http://localhost:8000/health` responds from inside the
-   container.
-6. As a stretch task: add the `/health` DB-check version shown above,
-   rebuild, and confirm it still returns 200 with a real (even if
-   SQLite-based) database connected.
-
-If you don't have Docker installed, read through steps 2-6 conceptually
-— the goal is understanding what each line does and why, which transfers
-to any container platform.
+</div>
