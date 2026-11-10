@@ -17,15 +17,20 @@ FastAPI features one of the most powerful and intuitive **Dependency Injection (
 
 ```mermaid
 flowchart TD
-    Req[Incoming HTTP Request] --> DI[FastAPI Dependency Injection Engine]
+    classDef reqStyle fill:#0284c7,stroke:#0369a1,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef diStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef depStyle fill:#d97706,stroke:#b45309,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef routeStyle fill:#059669,stroke:#047857,stroke-width:2px,color:#ffffff,font-weight:bold;
+
+    Req["🌐 Incoming HTTP Request"]:::reqStyle --> DI["⚙️ Dependency Injection Engine"]:::diStyle
     subgraph Dependency Graph
-        DI --> D1[Pagination Parameters Dep]
-        DI --> D2[Search Filter Query Dep]
-        D1 --> Combined[Resolved Injected Arguments]
+        DI --> D1["📄 PaginationDep: skip, limit"]:::depStyle
+        DI --> D2["🔍 SearchDep: query sanitization"]:::depStyle
+        D1 --> Combined["📦 Resolved Parameter Tuple"]:::depStyle
         D2 --> Combined
     end
-    Combined --> Route[Route Handler: list_tasks]
-    Route --> Resp[HTTP Response]
+    Combined --> Route["🚀 Route Handler: list_tasks"]:::routeStyle
+    Route --> Resp["📤 HTTP Response"]:::reqStyle
 ```
 
 ---

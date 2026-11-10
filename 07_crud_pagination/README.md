@@ -19,15 +19,20 @@ This module unifies clean **schema inheritance modeling** with high-performance 
 
 ```mermaid
 flowchart LR
-    Client[Client Request: /tasks?done=true&skip=20&limit=10] --> FastAPI[FastAPI Controller]
-    FastAPI --> SQL[SQL Query Generator]
-    SQL --> Engine[(SQLite / PostgreSQL)]
-    subgraph Database Query Execution
-        Engine --> Q["SELECT * FROM task WHERE done = true OFFSET 20 LIMIT 10"]
+    classDef clientStyle fill:#0284c7,stroke:#0369a1,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef apiStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef dbStyle fill:#ea580c,stroke:#c2410c,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef outStyle fill:#059669,stroke:#047857,stroke-width:2px,color:#ffffff,font-weight:bold;
+
+    Client["🌐 Request: /tasks?done=true&skip=20&limit=10"]:::clientStyle --> FastAPI["⚡ FastAPI Controller"]:::apiStyle
+    FastAPI --> SQL["⚙️ SQL Statement Builder"]:::apiStyle
+    SQL --> Engine[("🗄️ SQLite / PostgreSQL Engine")]:::dbStyle
+    subgraph Database Execution
+        Engine --> Q["SELECT * FROM task WHERE done = true OFFSET 20 LIMIT 10"]:::dbStyle
     end
-    Q --> Out[Streamed Rows]
-    Out --> Serializer[TaskRead Serializer]
-    Serializer --> Response[Fast Paginated JSON Response]
+    Q --> Out["📦 Streamed Row Tuples"]:::outStyle
+    Out --> Serializer["🔍 TaskRead Response Serializer"]:::outStyle
+    Serializer --> Response["📤 Paginated JSON Response"]:::outStyle
 ```
 
 ---

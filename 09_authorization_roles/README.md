@@ -19,12 +19,18 @@ In this module, you build a production-grade **Role-Based Access Control (RBAC)*
 
 ```mermaid
 flowchart TD
-    Req[Client Request with JWT Token] --> Auth[CurrentUserDep Dependency]
-    Auth -->|401 If Invalid Token| Err1[HTTP 401 Unauthorized]
-    Auth -->|Authenticated User| Factory["require_role('admin') Dependency Factory"]
-    Factory --> Check{user.role == 'admin'?}
-    Check -->|No| Err2[HTTP 403 Forbidden: Insufficient Permissions]
-    Check -->|Yes| Route[Execute Protected Admin Handler]
+    classDef clientStyle fill:#0284c7,stroke:#0369a1,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef authStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef checkStyle fill:#d97706,stroke:#b45309,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef errStyle fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef passStyle fill:#059669,stroke:#047857,stroke-width:2px,color:#ffffff,font-weight:bold;
+
+    Req["🌐 Client Request with JWT"]:::clientStyle --> Auth["🔐 CurrentUserDep"]:::authStyle
+    Auth -->|Invalid / Expired Token| Err1["❌ 401 Unauthorized"]:::errStyle
+    Auth -->|Authenticated User| Factory["🏭 require_role('admin')"]:::checkStyle
+    Factory --> Check{"🛡️ user.role == 'admin'?"}:::checkStyle
+    Check -->|No| Err2["🚫 403 Forbidden: Insufficient Permissions"]:::errStyle
+    Check -->|Yes| Route["✅ Execute Protected Admin Endpoint"]:::passStyle
 ```
 
 ---

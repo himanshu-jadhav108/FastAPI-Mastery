@@ -19,16 +19,21 @@ This module unifies every architectural component built across the entire 21-mod
 
 ```mermaid
 graph TD
-    LB[Reverse Proxy / Cloud Load Balancer: Nginx / Traefik / AWS ALB] -->|TLS Termination :443 -> :8000| Gunicorn[Gunicorn Master Process]
+    classDef proxyStyle fill:#0284c7,stroke:#0369a1,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef masterStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef workerStyle fill:#059669,stroke:#047857,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef dbStyle fill:#ea580c,stroke:#c2410c,stroke-width:2px,color:#ffffff,font-weight:bold;
+
+    LB["🌐 Reverse Proxy / Cloud ALB (TLS Termination :443 -> :8000)"]:::proxyStyle --> Gunicorn["⚙️ Gunicorn Master Process"]:::masterStyle
     
     subgraph Containerized Application Pod
-        Gunicorn --> Worker1[Uvicorn Worker 1: Event Loop]
-        Gunicorn --> Worker2[Uvicorn Worker 2: Event Loop]
-        Gunicorn --> Worker3[Uvicorn Worker 3: Event Loop]
-        Gunicorn --> Worker4[Uvicorn Worker 4: Event Loop]
+        Gunicorn --> Worker1["⚡ Uvicorn Worker 1: Event Loop"]:::workerStyle
+        Gunicorn --> Worker2["⚡ Uvicorn Worker 2: Event Loop"]:::workerStyle
+        Gunicorn --> Worker3["⚡ Uvicorn Worker 3: Event Loop"]:::workerStyle
+        Gunicorn --> Worker4["⚡ Uvicorn Worker 4: Event Loop"]:::workerStyle
     end
 
-    Worker1 <--> DB[(PostgreSQL Database Cluster)]
+    Worker1 <--> DB[("🗄️ PostgreSQL Database Cluster")]:::dbStyle
     Worker2 <--> DB
     Worker3 <--> DB
     Worker4 <--> DB

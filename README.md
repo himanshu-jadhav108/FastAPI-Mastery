@@ -52,24 +52,34 @@ By the time you finish Module 21, your application will feature:
 
 ```mermaid
 graph TD
+    %% Color Palette Definitions
+    classDef clientStyle fill:#0284c7,stroke:#0369a1,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef gatewayStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef routerStyle fill:#059669,stroke:#047857,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef serviceStyle fill:#db2777,stroke:#be185d,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef dataStyle fill:#ea580c,stroke:#c2410c,stroke-width:2px,color:#ffffff,font-weight:bold;
+
     subgraph Client Layer
-        C1[HTTP REST Client / Frontend]
-        C2[WebSocket Real-Time Client]
+        C1["🌐 HTTP REST Client / Frontend"]:::clientStyle
+        C2["⚡ WebSocket Real-Time Client"]:::clientStyle
     end
 
     subgraph FastAPI Application Gateway
-        MW[Custom Middleware & CORS]
-        Router[APIRouter Dispatcher]
-        Deps[Dependency Injection Engine: Auth / DB / Roles]
+        MW["🛡️ Custom Middleware & CORS"]:::gatewayStyle
+        Router["🔀 APIRouter Dispatcher"]:::gatewayStyle
+        Deps["💉 Dependency Engine: Auth / DB / Roles"]:::gatewayStyle
     end
 
-    subgraph Service & Persistence
-        TasksRouter[Tasks Router]
-        AuthRouter[Auth Router]
-        WSRouter[WebSocket Broadcast Manager]
-        BG[Async Background Tasks]
-        DB[(Async Database / SQLModel)]
-        Storage[(Media / Upload Storage)]
+    subgraph Feature Routers & Real-Time
+        TasksRouter["📋 Tasks Router"]:::routerStyle
+        AuthRouter["🔐 Auth Router"]:::routerStyle
+        WSRouter["📡 WebSocket Broadcast Manager"]:::serviceStyle
+        BG["⏱️ Async Background Tasks"]:::serviceStyle
+    end
+
+    subgraph Persistence & Storage Layer
+        DB[("🗄️ Async Database / SQLModel")]:::dataStyle
+        Storage[("📁 Media / Upload Storage")]:::dataStyle
     end
 
     C1 -->|HTTP Request| MW
