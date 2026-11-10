@@ -64,3 +64,4 @@ yarn-debug.log*
 yarn-error.log*
 .eslintcache
 __pycache__
+*.db
