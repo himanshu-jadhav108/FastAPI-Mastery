@@ -1,71 +1,138 @@
-# 03 — Pydantic Models & Validation
+<div align="center">
 
-## Theory
+# 🛡️ Module 03: Pydantic Validation & Data Modeling
 
-So far, `POST` endpoints haven't accepted real data. A **request body** is
-JSON sent by the client, and FastAPI parses it using a Pydantic model:
+[![Level](https://img.shields.io/badge/Level-Foundations-green?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Completed-success?style=for-the-badge)](#)
 
-```python
-from pydantic import BaseModel, Field
+[⏮️ Previous: 02 Routing & Params](../02_routing_params/README.md) • [📚 Course Overview](../README.md) • [Next: 04 Error Handling ⏭️](../04_error_handling/README.md)
 
-class TaskCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=100)
-    priority: int = Field(default=1, ge=1, le=5)
+---
 
-@app.post("/tasks")
-def create_task(task: TaskCreate):
-    ...
+</div>
+
+## 📌 Architectural Overview
+
+Pydantic v2 powers FastAPI's data validation, parsing, serialization, and OpenAPI schema generation. When a request hits an endpoint with a Pydantic model parameter, FastAPI executes an automated parsing pipeline:
+
+```mermaid
+flowchart TD
+    A[Incoming HTTP Request Body] --> B[Raw JSON Parser]
+    B --> C{Pydantic Validation Engine}
+    C -->|Invalid Type / Constraint Failure| D[Automatic 422 Unprocessable Entity]
+    C -->|Valid Payload| E[Convert to Typed Python Instance]
+    E --> F[Execute Route Handler Logic]
+    F --> G[Pydantic Response Model Serialization]
+    G --> H[Outgoing Filtered JSON Response]
 ```
 
-When a client `POST`s JSON, FastAPI:
-1. Parses the JSON body
-2. Validates it against `TaskCreate`
-3. If invalid → returns `422` with a detailed error, your function never runs
-4. If valid → `task` is a real `TaskCreate` **object** — `task.title` etc.
+---
 
-**Why separate "create" schemas from your internal data?** A client
-shouldn't be able to set a task's `id` or `created_at` — those are decided
-by the server. So `TaskCreate` (what the client sends) is a different
-shape than the full `Task` (what you store/return).
+## 💡 Core Theoretical Concepts
 
-**Custom validators** run extra logic beyond type + range checks:
+### 1. Request Body Validation with `BaseModel`
+
+Unlike query or path parameters, complex JSON payloads are defined by inheriting from Pydantic's `BaseModel`:
 
 ```python
-from pydantic import field_validator
+from pydantic import BaseModel, Field, field_validator
 
 class TaskCreate(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=100, description="Task title")
+    priority: int = Field(default=3, ge=1, le=5, description="Priority from 1 (low) to 5 (urgent)")
+    done: bool = False
 
     @field_validator("title")
     @classmethod
-    def title_not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("Title cannot be blank or whitespace.")
-        return value.strip()
+    def validate_title(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Title cannot be whitespace only.")
+        return cleaned
 ```
 
-**`response_model`** does the same validation in reverse — it controls
-exactly what shape gets sent back to the client, even if your Python
-object has extra fields:
+### 2. Schema Segregation: Input (`TaskCreate`) vs Output (`TaskRead`)
+
+Never reuse the exact same model for database persistence, inputs, and outputs. Separation of concerns prevents severe security vulnerabilities like **Mass Assignment**:
+- **`TaskCreate`**: Contains client-submittable fields. It never includes server-generated metadata like `id` or `created_at`.
+- **`TaskRead`**: Contains all fields exposed back to clients, including auto-generated IDs.
 
 ```python
-@app.post("/tasks", response_model=TaskRead)
+class TaskRead(TaskCreate):
+    id: int
+```
+
+### 3. Response Filtering via `response_model`
+
+The `response_model` argument in route decorators ensures outgoing responses match the expected schema and strips unwanted or private attributes:
+
+```python
+@app.post("/tasks", response_model=TaskRead, status_code=201)
 def create_task(task: TaskCreate):
     ...
 ```
 
-## Task
+---
 
-Open `starter.py`.
+## 🎯 Task Specifications
 
-1. Define `TaskCreate` (input schema): `title: str` (1-100 chars),
-   `priority: int` (1-5, default 3), `done: bool = False`.
-2. Add a `field_validator` on `title` that strips whitespace and rejects
-   blank titles.
-3. Define `TaskRead` (output schema): everything in `TaskCreate` plus
-   `id: int`.
-4. `POST /tasks` → accepts a `TaskCreate` body, assigns the next id,
-   stores it, returns it with `response_model=TaskRead` and status `201`.
-5. `GET /tasks` → `response_model=list[TaskRead]`.
+Upgrade the Task Manager API to accept structured payloads, enforce validation rules, and return strictly typed responses.
 
-Test: try posting a task with a blank title and confirm you get a `422`.
+### Schema Definitions
+
+```
+TaskCreate:
+├── title: str (1..100 characters, non-blank stripped)
+├── priority: int (1..5, default: 3)
+└── done: bool (default: False)
+
+TaskRead (inherits TaskCreate):
+└── id: int
+```
+
+### Route Contract
+
+| Method | Path | Request Body | Response Model | Status Code | Notes |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| `POST` | `/tasks` | `TaskCreate` | `TaskRead` | `201 Created` | Validates payload, assigns incremented ID, stores in list |
+| `GET` | `/tasks` | None | `list[TaskRead]` | `200 OK` | Serializes all tasks through `TaskRead` |
+
+---
+
+## 🛠️ Step-by-Step Implementation
+
+1. Open `question/starter.py`.
+2. Define `TaskCreate` with Pydantic `Field` constraints.
+3. Attach `@field_validator("title")` to reject whitespace-only strings.
+4. Define `TaskRead` inheriting from `TaskCreate` with `id: int`.
+5. Update `POST /tasks` to accept `TaskCreate`, assign an ID, and return the created task.
+6. Verify validation via Swagger UI.
+
+---
+
+## 🧪 Verification Commands
+
+```bash
+# Valid Task Creation (HTTP 201 Created)
+curl -X POST http://127.0.0.1:8000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Implement authentication", "priority": 5}'
+
+# Invalid Task Creation - Empty Title (Triggers HTTP 422)
+curl -X POST http://127.0.0.1:8000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title": "   ", "priority": 1}'
+
+# Invalid Priority Out of Bounds (Triggers HTTP 422)
+curl -X POST http://127.0.0.1:8000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Valid title", "priority": 10}'
+```
+
+---
+
+<div align="center">
+
+[⏮️ Previous: 02 Routing & Params](../02_routing_params/README.md) • [📚 Course Overview](../README.md) • [Next: 04 Error Handling ⏭️](../04_error_handling/README.md)
+
+</div>
