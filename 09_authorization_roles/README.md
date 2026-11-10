@@ -1,66 +1,131 @@
-# 09 — Role-Based Authorization
+<div align="center">
 
-## Theory
+# 👥 Module 09: Role-Based Authorization (RBAC)
 
-Module 08 answered "who are you?" This module answers "are you allowed to
-do *this*?"
+[![Level](https://img.shields.io/badge/Level-Intermediate-blue?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Completed-success?style=for-the-badge)](#)
 
-The pattern: build a dependency **factory** — a function that returns a
-dependency, parameterized by what role is required.
+[⏮️ Previous: 08 Authentication OAuth2 JWT](../08_auth_oauth2_jwt/README.md) • [📚 Course Overview](../README.md) • [Next: 10 Middleware & CORS ⏭️](../10_middleware_cors/README.md)
+
+---
+
+</div>
+
+## 📌 Architectural Overview
+
+While **Authentication** verifies *identity* ("who are you?"), **Authorization** governs *permission* ("are you allowed to perform this operation?").
+
+In this module, you build a production-grade **Role-Based Access Control (RBAC)** architecture using FastAPI's **Dependency Factory** pattern: a higher-order function that generates tailored dependencies parameterized by the required role.
+
+```mermaid
+flowchart TD
+    Req[Client Request with JWT Token] --> Auth[CurrentUserDep Dependency]
+    Auth -->|401 If Invalid Token| Err1[HTTP 401 Unauthorized]
+    Auth -->|Authenticated User| Factory["require_role('admin') Dependency Factory"]
+    Factory --> Check{user.role == 'admin'?}
+    Check -->|No| Err2[HTTP 403 Forbidden: Insufficient Permissions]
+    Check -->|Yes| Route[Execute Protected Admin Handler]
+```
+
+---
+
+## 💡 Core Theoretical Concepts
+
+### 1. HTTP 401 vs HTTP 403
+
+| Status | Name | Meaning | Trigger |
+| :---: | :--- | :--- | :--- |
+| **`401`** | **Unauthorized** | Missing, malformed, or expired token | Client failed to prove identity |
+| **`403`** | **Forbidden** | User authenticated, but lacks permission | User identity verified, but role is restricted |
+
+### 2. Dependency Factories in FastAPI
+
+A dependency factory is a standard Python function that returns a closure. FastAPI resolves the inner closure as a first-class dependency:
 
 ```python
+from fastapi import Depends, HTTPException, status
+
 def require_role(required_role: str):
     def role_checker(current_user: CurrentUserDep) -> User:
         if current_user.role != required_role:
             raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                f"Requires '{required_role}' role.",
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Operation requires '{required_role}' privileges.",
             )
         return current_user
     return role_checker
 
-@app.delete("/tasks/{task_id}")
-def delete_task(
-    task_id: int,
-    current_user: Annotated[User, Depends(require_role("admin"))],
-):
-    ...
+AdminDep = Annotated[User, Depends(require_role("admin"))]
 ```
 
-Note the distinction:
-- Missing/invalid token → **401 Unauthorized** ("I don't know who you are")
-- Valid token, wrong role → **403 Forbidden** ("I know who you are, you're
-  just not allowed")
-
-**Ownership checks** are a related, even more common pattern — not "is
-your role X" but "is this *your* resource":
+### 3. Securing Endpoints with Role Dependencies
 
 ```python
 @app.delete("/tasks/{task_id}")
-def delete_task(task_id: int, current_user: CurrentUserDep, session: SessionDep):
-    task = session.get(Task, task_id)
-    if task is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found.")
-    if task.owner_id != current_user.id and current_user.role != "admin":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your task.")
+def delete_task(task_id: int, current_admin: AdminDep, session: SessionDep):
+    # Only authenticated users with role='admin' can execute this
     ...
 ```
 
-## Task
+---
 
-Open `starter.py` (carries over module 08's User/Task/auth).
+## 🎯 Task Specifications
 
-1. Add `role: str = "user"` to `User`.
-2. Write `require_role(required_role: str)` as shown.
-3. `GET /admin/users` → list all users, requires `role="admin"`.
-   `response_model=list[UserRead]`.
-4. `DELETE /tasks/{task_id}` → a user can delete their own task
-   regardless of role; an admin can delete *any* task. Anyone else gets
-   403. 404 if the task doesn't exist.
-5. `PATCH /tasks/{task_id}/reassign` → admin-only (`require_role("admin")`),
-   accepts a query param `new_owner_id: int`, reassigns the task.
+Update `question/starter.py` to enforce role constraints.
 
-Test by registering two users, manually setting one's role to `"admin"`
-(you'll need to poke the DB directly or add a temporary endpoint — real
-apps seed this at setup or via a separate internal tool), and confirming
-403s happen correctly for the non-admin.
+### Schema & Role Updates
+
+- Extend `User` table to include a `role: str = Field(default="user")` column.
+- Allow role specification during registration (`UserCreate` includes `role: str = "user"`).
+
+### Route Contract
+
+| Method | Path | Required Role | Status Code | Description |
+| :--- | :--- | :---: | :---: | :--- |
+| `POST` | `/auth/register` | Public | `201 Created` | Register new user with default or specified role |
+| `POST` | `/auth/token` | Public | `200 OK` | OAuth2 password token exchange |
+| `GET` | `/users` | `admin` | `200 OK` | List all system users (403 for non-admins) |
+| `DELETE` | `/tasks/{task_id}` | `admin` | `204 No Content` | Delete any task (403 for regular users) |
+| `GET` | `/tasks` | `user` or `admin` | `200 OK` | View available tasks |
+
+---
+
+## 🛠️ Step-by-Step Implementation
+
+1. Open `question/starter.py`.
+2. Add `role: str` to `User` and `UserCreate`.
+3. Construct the `require_role(required_role: str)` factory function.
+4. Define `AdminDep` using `Depends(require_role("admin"))`.
+5. Secure `GET /users` and `DELETE /tasks/{task_id}` with `AdminDep`.
+6. Test using two accounts: a standard user (`role="user"`) and an administrator (`role="admin"`). Verify that standard users receive `403 Forbidden`.
+
+---
+
+## 🧪 Verification Commands
+
+```bash
+# 1. Register Regular User & Admin
+curl -X POST http://127.0.0.1:8000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "alice", "password": "UserPass123", "role": "user"}'
+
+curl -X POST http://127.0.0.1:8000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "boss", "password": "AdminPass123", "role": "admin"}'
+
+# 2. Login as Alice & attempt admin route -> Expect HTTP 403 Forbidden
+curl -X GET http://127.0.0.1:8000/users \
+  -H "Authorization: Bearer <ALICE_ACCESS_TOKEN>"
+
+# 3. Login as Boss & attempt admin route -> Expect HTTP 200 OK
+curl -X GET http://127.0.0.1:8000/users \
+  -H "Authorization: Bearer <BOSS_ACCESS_TOKEN>"
+```
+
+---
+
+<div align="center">
+
+[⏮️ Previous: 08 Authentication OAuth2 JWT](../08_auth_oauth2_jwt/README.md) • [📚 Course Overview](../README.md) • [Next: 10 Middleware & CORS ⏭️](../10_middleware_cors/README.md)
+
+</div>
