@@ -1,80 +1,127 @@
-# 16 — Routers & Project Structure
+<div align="center">
 
-## Theory
+# 🏛️ Module 16: Routers & Clean Architecture Project Structure
 
-Every module so far has been one file. Real projects split by feature
-using `APIRouter` — a "mini FastAPI app" you build separately and plug
-into the main app.
+[![Level](https://img.shields.io/badge/Level-Advanced-red?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Completed-success?style=for-the-badge)](#)
+
+[⏮️ Previous: 15 Logging & Exception Handlers](../15_logging_exception_handlers/README.md) • [📚 Course Overview](../README.md) • [Next: 17 Async Database ⏭️](../17_async_database/README.md)
+
+---
+
+</div>
+
+## 📌 Architectural Overview
+
+Monolithic single-file applications (`main.py` containing 1000+ lines) become unmaintainable as projects scale. Real-world microservices are structured into feature-sliced modules using **`APIRouter`**.
+
+An `APIRouter` operates as an independent "miniature FastAPI application" that groups related endpoints, schemas, and dependencies, and mounts seamlessly onto the central root application.
+
+```
+                           +--------------------------------+
+                           |          app/main.py           |
+                           |       (Root FastAPI App)       |
+                           +--------------------------------+
+                                     /             \
+                   include_router() /               \ include_router()
+                                   v                 v
+            +---------------------------+   +---------------------------+
+            |      routers/auth.py      |   |      routers/tasks.py     |
+            |  prefix: "/auth"          |   |  prefix: "/tasks"         |
+            |  tags: ["Authentication"] |   |  tags: ["Tasks"]          |
+            +---------------------------+   +---------------------------+
+```
+
+---
+
+## 💡 Core Theoretical Concepts
+
+### 1. The `APIRouter` Primitives
 
 ```python
-# routers/tasks.py
-from fastapi import APIRouter
+# app/routers/tasks.py
+from fastapi import APIRouter, Depends
 
-router = APIRouter(prefix="/tasks", tags=["tasks"])
+router = APIRouter(
+    prefix="/tasks",
+    tags=["Tasks"],
+    dependencies=[Depends(verify_active_session)], # Applied to all routes in router
+)
 
 @router.get("/")
 def list_tasks():
     ...
-
-@router.get("/{task_id}")
-def get_task(task_id: int):
-    ...
 ```
 
-```python
-# main.py
-from fastapi import FastAPI
-from routers import tasks, auth, users
+- `prefix="/tasks"`: Automatically prefixes every route defined on this router (`GET /tasks/`, `GET /tasks/{id}`).
+- `tags=["Tasks"]`: Groups and organizes all endpoints under a dedicated collapsable section in the interactive `/docs` UI.
+- `dependencies`: Router-level dependencies execute on _every_ request hitting this router (e.g. enforcing authentication across an entire domain).
 
-app = FastAPI()
-app.include_router(tasks.router)
-app.include_router(auth.router)
-app.include_router(users.router)
-```
-
-- `prefix="/tasks"` — every route in this router is automatically under
-  `/tasks`, so `@router.get("/")` becomes `GET /tasks/` and
-  `@router.get("/{task_id}")` becomes `GET /tasks/{task_id}`
-- `tags=["tasks"]` — groups these routes together in the `/docs` UI
-- Routers can take their own `dependencies=[Depends(...)]` that apply to
-  every route inside them — e.g. requiring auth for a whole router at once
-
-## A conventional layout
+### 2. Industry Standard Clean Project Layout
 
 ```
-app/
-  main.py              # creates FastAPI(), includes routers
-  database.py           # engine, get_session
-  models.py              # SQLModel table models
-  schemas.py               # Pydantic request/response schemas
-  security.py                # password hashing, JWT
-  dependencies.py               # get_current_user, require_role, etc.
-  routers/
-    __init__.py
-    auth.py
-    users.py
-    tasks.py
+project/app/
+├── __init__.py
+├── main.py              # Root FastAPI instance & router registration
+├── database.py          # Engine creation, metadata, and SessionDep
+├── models.py            # SQLModel table definitions (DB entities)
+├── schemas.py           # Pydantic request/response validation schemas
+├── security.py          # Password hashing (Argon2) and JWT generation
+├── dependencies.py      # Auth dependencies (get_current_user, require_role)
+└── routers/
+    ├── __init__.py
+    ├── auth.py          # Login, registration, token issuance
+    └── tasks.py         # Full CRUD task operations
 ```
 
-This module gives you that layout already scaffolded under
-`project/app/` with everything from modules 06-09 (database, auth,
-tasks) working — but split into files instead of stuffed in one.
+---
 
-## Task
+## 🎯 Task Specifications
 
-Open `project/app/`. The files are mostly complete but have TODOs where
-router wiring is missing:
+Open the scaffolded application in `project/app/` and assemble the modular system.
 
-1. `project/app/routers/tasks.py` — TODO: create the `APIRouter` with
-   `prefix="/tasks"` and `tags=["tasks"]`, and change every
-   `@app.get(...)` etc. in this file to `@router.get(...)`.
-2. `project/app/routers/auth.py` — same, `prefix="/auth"`,
-   `tags=["auth"]`.
-3. `project/app/main.py` — TODO: import both routers and
-   `app.include_router(...)` each one.
-4. Run it from inside `project/`: `fastapi dev app/main.py`. Confirm
-   `/docs` still shows all routes grouped by tag, and everything from
-   modules 08/09 still works end to end (register, login, create task).
+### Wiring Requirements
 
-This is the last module using SQLModel's sync engine — module 17 swaps
-this exact project to an async database layer.
+1. **`project/app/routers/tasks.py`**:
+   - Instantiate `router = APIRouter(prefix="/tasks", tags=["tasks"])`.
+   - Switch route decorators from `@app` to `@router`.
+2. **`project/app/routers/auth.py`**:
+   - Instantiate `router = APIRouter(prefix="/auth", tags=["auth"])`.
+   - Switch route decorators to `@router`.
+3. **`project/app/main.py`**:
+   - Import `auth` and `tasks` routers.
+   - Register them via `app.include_router(auth.router)` and `app.include_router(tasks.router)`.
+4. Run the project from inside `project/` with `fastapi dev app/main.py`.
+
+---
+
+## 🛠️ Step-by-Step Implementation
+
+1. Navigate into `project/`.
+2. Update `app/routers/tasks.py` with `APIRouter` declaration.
+3. Update `app/routers/auth.py` with `APIRouter` declaration.
+4. Mount both routers inside `app/main.py`.
+5. Verify in Swagger UI that all routes are grouped by their respective tags (`auth` and `tasks`).
+
+---
+
+## 🧪 Verification Commands
+
+```bash
+cd project
+
+# Run the modular application
+fastapi dev app/main.py
+
+# Query modular endpoints
+curl -X GET http://127.0.0.1:8000/tasks/
+curl -X GET http://127.0.0.1:8000/docs
+```
+
+---
+
+<div align="center">
+
+[⏮️ Previous: 15 Logging & Exception Handlers](../15_logging_exception_handlers/README.md) • [📚 Course Overview](../README.md) • [Next: 17 Async Database ⏭️](../17_async_database/README.md)
+
+</div>
